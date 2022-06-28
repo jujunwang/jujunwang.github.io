@@ -2,13 +2,16 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
   xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
-    <loc>https://jujunwang.github.io/posts/</loc>
-    <lastmod>2022-06-28T20:53:26+08:00</lastmod>
+    <loc>https://jujunwang.github.io/posts/http/</loc>
+    <lastmod>2022-06-28T21:09:53+08:00</lastmod>
   </url><url>
-    <loc>https://jujunwang.github.io/posts/sync.map/</loc>
-    <lastmod>2022-06-28T20:53:26+08:00</lastmod>
+    <loc>https://jujunwang.github.io/posts/</loc>
+    <lastmod>2022-06-28T21:09:53+08:00</lastmod>
   </url><url>
     <loc>https://jujunwang.github.io/</loc>
+    <lastmod>2022-06-28T21:09:53+08:00</lastmod>
+  </url><url>
+    <loc>https://jujunwang.github.io/posts/sync.map/</loc>
     <lastmod>2022-06-28T20:53:26+08:00</lastmod>
   </url><url>
     <loc>https://jujunwang.github.io/posts/test/</loc>

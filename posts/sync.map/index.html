@@ -6,9 +6,7 @@
   
   <meta http-equiv="content-type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="sync.Map 众所周知，golang的map不是线程安全的（只读是线程安全的，同时写线程不安全），所以官方在go的1.9版本推出了sync.Map。
-sync.map 是线程安全的，读取，插入，删除也都保持着常数级的时间复杂度。 sync.map 的零值是有效的，并且零值是一个空的 map。在第一次使用之后，不允许被拷贝.
-1. 如何使用 package main import ( &amp;#34;fmt&amp;#34; &amp;#34;sync&amp;#34; ) func main() { var m sync.Map // 1. 写入 m.Store(&amp;#34;zhao&amp;#34;, 18) m.Store(&amp;#34;qian&amp;#34;, 20) m.Store(&amp;#34;li&amp;#34;, 30) // 2. 读取 age1, _ := m.Load(&amp;#34;zhao&amp;#34;) fmt.Println(age1.(int)) // 3. 遍历 m.Range(func(key, value interface{}) bool { name := key.(string) age := value.(int) fmt.Println(name, age) return true }) // 4. 删除 m.Delete(&amp;#34;zhao&amp;#34;) age2, ok := m.Load(&amp;#34;zhao&amp;#34;) fmt.Println(age2, ok) // 5. 读取并删除 age4, loaded := m." />
+<meta name="description" content="sync.Map详解" />
 <meta name="keywords" content=", " />
 <meta name="robots" content="noodp" />
 <link rel="canonical" href="https://jujunwang.github.io/posts/sync.map/" />
@@ -38,9 +36,7 @@ sync.map 是线程安全的，读取，插入，删除也都保持着常数级�
 <meta property="og:locale" content="en" />
 <meta property="og:type" content="article" />
 <meta property="og:title" content="Sync.Map">
-<meta property="og:description" content="sync.Map 众所周知，golang的map不是线程安全的（只读是线程安全的，同时写线程不安全），所以官方在go的1.9版本推出了sync.Map。
-sync.map 是线程安全的，读取，插入，删除也都保持着常数级的时间复杂度。 sync.map 的零值是有效的，并且零值是一个空的 map。在第一次使用之后，不允许被拷贝.
-1. 如何使用 package main import ( &amp;#34;fmt&amp;#34; &amp;#34;sync&amp;#34; ) func main() { var m sync.Map // 1. 写入 m.Store(&amp;#34;zhao&amp;#34;, 18) m.Store(&amp;#34;qian&amp;#34;, 20) m.Store(&amp;#34;li&amp;#34;, 30) // 2. 读取 age1, _ := m.Load(&amp;#34;zhao&amp;#34;) fmt.Println(age1.(int)) // 3. 遍历 m.Range(func(key, value interface{}) bool { name := key.(string) age := value.(int) fmt.Println(name, age) return true }) // 4. 删除 m.Delete(&amp;#34;zhao&amp;#34;) age2, ok := m.Load(&amp;#34;zhao&amp;#34;) fmt.Println(age2, ok) // 5. 读取并删除 age4, loaded := m." />
+<meta property="og:description" content="sync.Map详解" />
 <meta property="og:url" content="https://jujunwang.github.io/posts/sync.map/" />
 <meta property="og:site_name" content="Terminal" />
 
@@ -251,6 +247,13 @@ sync.map 是线程安全的，读取，插入，删除也都保持着常数级�
         <hr />
     </div>
     <div class="pagination__buttons">
+        
+        <span class="button previous">
+            <a href="https://jujunwang.github.io/posts/http/">
+                <span class="button__icon">←</span>
+                <span class="button__text">Http</span>
+            </a>
+        </span>
         
         
         <span class="button next">

@@ -16,6 +16,8 @@
 
 <link rel="stylesheet" href="https://jujunwang.github.io/assets/style.css">
 
+  <link rel="stylesheet" href="https://jujunwang.github.io/assets/green.css">
+
 
 
 
@@ -23,7 +25,7 @@
 
 <link rel="apple-touch-icon" href="https://jujunwang.github.io/img/apple-touch-icon-192x192.png">
 
-  <link rel="shortcut icon" href="https://jujunwang.github.io/img/favicon/orange.png">
+  <link rel="shortcut icon" href="https://jujunwang.github.io/img/favicon/green.png">
 
 
 
@@ -39,7 +41,7 @@
 <meta property="og:site_name" content="Terminal" />
 
   
-    <meta property="og:image" content="https://jujunwang.github.io/img/favicon/orange.png">
+    <meta property="og:image" content="https://jujunwang.github.io/img/favicon/green.png">
   
 
 <meta property="og:image:width" content="2048">
@@ -60,7 +62,7 @@
 
 
 </head>
-<body class="orange">
+<body class="green">
 
 
 <div class="container full headings--one-size">
@@ -70,7 +72,7 @@
     <div class="header__logo">
       <a href="/">
   <div class="logo">
-    Terminal
+    JujunWang Blog
   </div>
 </a>
 
@@ -85,11 +87,7 @@
     
       
         
-          <li><a href="/about">About</a></li>
-        
-      
-        
-          <li><a href="/showcase">Showcase</a></li>
+          <li><a href="https://github.com/jujunwang?tab=repositories">Github</a></li>
         
       
       
@@ -101,11 +99,7 @@
   <ul class="menu__inner menu__inner--mobile">
     
       
-        <li><a href="/about">About</a></li>
-      
-    
-      
-        <li><a href="/showcase">Showcase</a></li>
+        <li><a href="https://github.com/jujunwang?tab=repositories">Github</a></li>
       
     
     
@@ -120,6 +114,50 @@
     
   
   <div class="posts">
+    
+      <div class="post on-list">
+        <h1 class="post-title">
+          <a href="https://jujunwang.github.io/posts/sync.map/">Sync.Map</a>
+        </h1>
+        <div class="post-meta">
+          <span class="post-date">
+            2022-06-28
+          </span>
+          
+        </div>
+
+        
+          <span class="post-tags">
+            
+            #<a href="https://jujunwang.github.io/tags/"></a>&nbsp;
+            
+            #<a href="https://jujunwang.github.io/tags/"></a>&nbsp;
+            
+          </span>
+        
+
+        
+
+
+      
+        <div class="post-content">
+          
+            <p>sync.Map 众所周知，golang的map不是线程安全的（只读是线程安全的，同时写线程不安全），所以官方在go的1.9版本推出了sync.Map。
+sync.map 是线程安全的，读取，插入，删除也都保持着常数级的时间复杂度。 sync.map 的零值是有效的，并且零值是一个空的 map。在第一次使用之后，不允许被拷贝.</p>
+<ol>
+<li>如何使用 package main import ( &quot;fmt&quot; &quot;sync&quot; ) func main() { var m sync.Map // 1. 写入 m.Store(&quot;zhao&quot;, 18) m.Store(&quot;qian&quot;, 20) m.Store(&quot;li&quot;, 30) // 2. 读取 age1, _ := m.Load(&quot;zhao&quot;) fmt.Println(age1.(int)) // 3. 遍历 m.Range(func(key, value interface{}) bool { name := key.(string) age := value.(int) fmt.Println(name, age) return true }) // 4. 删除 m.Delete(&quot;zhao&quot;) age2, ok := m.Load(&quot;zhao&quot;) fmt.Println(age2, ok) // 5. 读取并删除 age4, loaded := m.</li>
+</ol>
+
+          
+        </div>
+
+        
+        <div>
+          <a class="read-more button"
+            href="/posts/sync.map/">Read more →</a>
+        </div>
+        
+      </div>
     
       <div class="post on-list">
         <h1 class="post-title">

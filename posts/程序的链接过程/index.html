@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  
+    <title>程序的链接过程 :: Terminal</title>
+  
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="程序的链接过程" />
+<meta name="keywords" content=", " />
+<meta name="robots" content="noodp" />
+<link rel="canonical" href="https://jujunwang.github.io/posts/%E7%A8%8B%E5%BA%8F%E7%9A%84%E9%93%BE%E6%8E%A5%E8%BF%87%E7%A8%8B/" />
+
+
+
+
+<link rel="stylesheet" href="https://jujunwang.github.io/assets/style.css">
+
+  <link rel="stylesheet" href="https://jujunwang.github.io/assets/green.css">
+
+
+
+
+
+
+<link rel="apple-touch-icon" href="https://jujunwang.github.io/img/apple-touch-icon-192x192.png">
+
+  <link rel="shortcut icon" href="https://jujunwang.github.io/img/favicon/green.png">
+
+
+
+<meta name="twitter:card" content="summary" />
+
+
+
+<meta property="og:locale" content="en" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="程序的链接过程">
+<meta property="og:description" content="程序的链接过程" />
+<meta property="og:url" content="https://jujunwang.github.io/posts/%E7%A8%8B%E5%BA%8F%E7%9A%84%E9%93%BE%E6%8E%A5%E8%BF%87%E7%A8%8B/" />
+<meta property="og:site_name" content="Terminal" />
+
+  <meta property="og:image" content="https://jujunwang.github.io">
+
+<meta property="og:image:width" content="2048">
+<meta property="og:image:height" content="1024">
+
+
+  <meta property="article:published_time" content="2022-06-29 17:15:23 &#43;0800 CST" />
+
+
+
+
+
+
+
+
+
+
+
+
+</head>
+<body class="green">
+
+
+<div class="container full headings--one-size">
+
+  <header class="header">
+  <div class="header__inner">
+    <div class="header__logo">
+      <a href="/">
+  <div class="logo">
+    JujunWang Blog
+  </div>
+</a>
+
+    </div>
+    
+      <div class="menu-trigger">menu</div>
+    
+  </div>
+  
+    <nav class="menu">
+  <ul class="menu__inner menu__inner--desktop">
+    
+      
+        
+          <li><a href="https://github.com/jujunwang?tab=repositories">Github</a></li>
+        
+      
+      
+    
+
+    
+  </ul>
+
+  <ul class="menu__inner menu__inner--mobile">
+    
+      
+        <li><a href="https://github.com/jujunwang?tab=repositories">Github</a></li>
+      
+    
+    
+  </ul>
+</nav>
+
+  
+</header>
+
+
+  <div class="content">
+    
+<div class="post">
+  <h1 class="post-title">
+    <a href="https://jujunwang.github.io/posts/%E7%A8%8B%E5%BA%8F%E7%9A%84%E9%93%BE%E6%8E%A5%E8%BF%87%E7%A8%8B/">程序的链接过程</a></h1>
+  <div class="post-meta">
+    
+      <span class="post-date">
+        2022-06-29
+        
+      </span>
+    
+    
+    
+  </div>
+
+  
+  
+
+
+  
+
+  <div class="post-content"><div>
+        <h1 id="程序的链接过程">程序的链接过程<a href="#程序的链接过程" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
+<h2 id="可执行文件生成概述">可执行文件生成概述<a href="#可执行文件生成概述" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
+<ul>
+<li>
+<p>预处理过程：处理源文件中的预编译指令</p>
+</li>
+<li>
+<p>编译过程：就是对预处理后得到的与处理文件（如hello.i）进行此法分析、语法分析、语义分析并优化，生成汇编代码文件（是可读的文本文件，CPU无法理解和执行它）</p>
+</li>
+<li>
+<p>汇编程序（汇编器）用来将汇编语言源程序转换为机器指令序列（机器语言程序）（.o文件，称为可重定位目标文件，不能够执行，还需要重定位）（汇编指令和机器指令一一对应，前者符号表示，他们都属于机器级指令，所构成的程序称为机器级代码）</p>
+</li>
+<li>
+<p>链接过程：蒋多个可重定位目标文件合并以生成可执行目标文件（上步预处理、编译和汇编三个阶段针对一个模块进行处理，得到一个对应的.o文件，所以还需要将多个.o文件进行合并以生成可执行文件）</p>
+</li>
+</ul>
+<h2 id="静态链接与动态链接">静态链接与动态链接<a href="#静态链接与动态链接" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
+<p><strong>动态链接</strong>是指在生成可执行文件时不将所有程序用到的函数链接到一个文件，因为有许多函数在操作系统带的dll文件中，当程序运行时直接从操作系统中找。而<strong>静态链接</strong>就是把所有用到的函数全部链接到exe文件中。</p>
+<ul>
+<li>动态链接是只建立一个引用的接口，而真正的代码和数据存放在另外的可执行模块中，在运行时再装入；</li>
+<li>而静态链接是把所有的代码和数据都复制到本模块中，运行时就不再需要库了。</li>
+</ul>
+<p>就算是静态链接，引入包含的代码也仅仅是把包含的函数代码包含进来，而不需要包含整个共享库。</p>
+<h2 id="链接过程">链接过程<a href="#链接过程" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
+<p>链接分为符号解析和冲定位</p>
+<ol>
+<li>确定符号的引用关系（<strong>符号解析</strong>）</li>
+<li>合并相关.o文件</li>
+<li>确定每个符号的地址</li>
+<li>在指令中填入新地址</li>
+</ol>
+
+      </div></div>
+
+  
+  
+<div class="pagination">
+    <div class="pagination__title">
+        <span class="pagination__title-h">Read other posts</span>
+        <hr />
+    </div>
+    <div class="pagination__buttons">
+        
+        
+        <span class="button next">
+            <a href="https://jujunwang.github.io/posts/sync.map/">
+                <span class="button__text">Sync.Map</span>
+                <span class="button__icon">→</span>
+            </a>
+        </span>
+        
+    </div>
+</div>
+
+  
+
+  
+  
+
+  
+</div>
+
+  </div>
+
+  
+    <footer class="footer">
+  <div class="footer__inner">
+    
+      <div class="copyright">
+        <span>© 2022 Powered by <a href="http://gohugo.io">Hugo</a></span>
+    
+        <span>:: Theme made by <a href="https://twitter.com/panr">panr</a></span>
+      </div>
+  </div>
+</footer>
+
+<script src="https://jujunwang.github.io/assets/main.js"></script>
+<script src="https://jujunwang.github.io/assets/prism.js"></script>
+
+
+
+
+
+
+
+  
+</div>
+
+</body>
+</html>

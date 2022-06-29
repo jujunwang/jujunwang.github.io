@@ -21,7 +21,7 @@
 &lt;p&gt;&lt;strong&gt;思路&lt;/strong&gt;：数组+链表-&amp;gt;HashMap&lt;/p&gt;
 &lt;h2 id=&#34;1先看一下go里的map是怎么实现的&#34;&gt;1.先看一下go里的map是怎么实现的&lt;/h2&gt;
 &lt;p&gt;go实现map采用拉链法的实现,如下图所示，键值对中的键会经过一个哈希函数，哈希函数会帮我们找到一个桶，对应我们用数组加链表的实现方式，就是映射到数组数组的一个位置，若该位置已经有数据了，那么就会将数据添加到该位置的链表中。&lt;/p&gt;
-&lt;p&gt;&lt;img src=&#34;https://img2022.cnblogs.com/blog/1776342/202206/1776342-20220618172700032-658645865.png&#34; alt=&#34;01&#34;&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img src=&#34;https://img.draveness.me/2019-12-30-15777168478798-separate-chaing-and-set.png&#34; alt=&#34;01&#34;&gt;&lt;/p&gt;
 &lt;h1 id=&#34;2-hashmap实现&#34;&gt;2 HashMap实现&lt;/h1&gt;
 &lt;p&gt;我的实现思路其实跟go的map实现思路类似，用数组+链表来模拟拉链法的实现。具体代码：&lt;/p&gt;
 &lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-go&#34; data-lang=&#34;go&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#75715e&#34;&gt;/**

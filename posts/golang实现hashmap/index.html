@@ -135,7 +135,7 @@
 <p><strong>思路</strong>：数组+链表-&gt;HashMap</p>
 <h2 id="1先看一下go里的map是怎么实现的">1.先看一下go里的map是怎么实现的<a href="#1先看一下go里的map是怎么实现的" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
 <p>go实现map采用拉链法的实现,如下图所示，键值对中的键会经过一个哈希函数，哈希函数会帮我们找到一个桶，对应我们用数组加链表的实现方式，就是映射到数组数组的一个位置，若该位置已经有数据了，那么就会将数据添加到该位置的链表中。</p>
-<p><img src="https://img2022.cnblogs.com/blog/1776342/202206/1776342-20220618172700032-658645865.png" alt="01"></p>
+<p><img src="https://img.draveness.me/2019-12-30-15777168478798-separate-chaing-and-set.png" alt="01"></p>
 <h1 id="2-hashmap实现">2 HashMap实现<a href="#2-hashmap实现" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
 <p>我的实现思路其实跟go的map实现思路类似，用数组+链表来模拟拉链法的实现。具体代码：</p>
 <div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#75715e">/**

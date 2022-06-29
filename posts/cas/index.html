@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  
+    <title>CAS :: Terminal</title>
+  
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="CAS机制" />
+<meta name="keywords" content=", " />
+<meta name="robots" content="noodp" />
+<link rel="canonical" href="https://jujunwang.github.io/posts/cas/" />
+
+
+
+
+<link rel="stylesheet" href="https://jujunwang.github.io/assets/style.css">
+
+  <link rel="stylesheet" href="https://jujunwang.github.io/assets/green.css">
+
+
+
+
+
+
+<link rel="apple-touch-icon" href="https://jujunwang.github.io/img/apple-touch-icon-192x192.png">
+
+  <link rel="shortcut icon" href="https://jujunwang.github.io/img/favicon/green.png">
+
+
+
+<meta name="twitter:card" content="summary" />
+
+
+
+<meta property="og:locale" content="en" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="CAS">
+<meta property="og:description" content="CAS机制" />
+<meta property="og:url" content="https://jujunwang.github.io/posts/cas/" />
+<meta property="og:site_name" content="Terminal" />
+
+  <meta property="og:image" content="https://jujunwang.github.io">
+
+<meta property="og:image:width" content="2048">
+<meta property="og:image:height" content="1024">
+
+
+  <meta property="article:published_time" content="2022-06-29 17:32:15 &#43;0800 CST" />
+
+
+
+
+
+
+
+
+
+
+
+
+</head>
+<body class="green">
+
+
+<div class="container full headings--one-size">
+
+  <header class="header">
+  <div class="header__inner">
+    <div class="header__logo">
+      <a href="/">
+  <div class="logo">
+    JujunWang Blog
+  </div>
+</a>
+
+    </div>
+    
+      <div class="menu-trigger">menu</div>
+    
+  </div>
+  
+    <nav class="menu">
+  <ul class="menu__inner menu__inner--desktop">
+    
+      
+        
+          <li><a href="https://github.com/jujunwang?tab=repositories">Github</a></li>
+        
+      
+      
+    
+
+    
+  </ul>
+
+  <ul class="menu__inner menu__inner--mobile">
+    
+      
+        <li><a href="https://github.com/jujunwang?tab=repositories">Github</a></li>
+      
+    
+    
+  </ul>
+</nav>
+
+  
+</header>
+
+
+  <div class="content">
+    
+<div class="post">
+  <h1 class="post-title">
+    <a href="https://jujunwang.github.io/posts/cas/">CAS</a></h1>
+  <div class="post-meta">
+    
+      <span class="post-date">
+        2022-06-29
+        
+      </span>
+    
+    
+    
+  </div>
+
+  
+  
+
+
+  
+
+  <div class="post-content"><div>
+        <h1 id="cas机制">CAS机制<a href="#cas机制" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
+<p>CAS（Compare and Swap）是乐观锁思想的一种典型实现</p>
+<h2 id="乐观锁与悲观锁">乐观锁与悲观锁<a href="#乐观锁与悲观锁" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
+<ul>
+<li>
+<p>悲观锁：</p>
+<p>悲观锁更新的方式认为：在更新数据的时候大概率会有其他线程去争夺共享资源，所以悲观锁的做法是：第一个获取资源的线程会将资源锁定起来，其他没争夺到资源的线程只能进入阻塞队列，等第一个获取资源的线程释放锁之后，这些线程才能有机会重新争夺资源。</p>
+</li>
+<li>
+<p>乐观锁：</p>
+<p>乐观锁更新方式认为:在更新数据的时候其他线程争抢这个共享变量的概率非常小，所以更新数据的时候不会对共享数据加锁。但是在正式更新数据之前会检查数据是否被其他线程改变过，如果未被其他线程改变过就将共享变量更新成最新值，如果发现共享变量已经被其他线程更新过了，就重试，直到成功为止。CAS机制就是乐观锁的典型实现。</p>
+</li>
+</ul>
+<h2 id="什么是csa">什么是CSA<a href="#什么是csa" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
+<p>CSA机制的三个核心参数：</p>
+<ul>
+<li>V：主存内存放的共享变量的值</li>
+<li>A：工作内存中共享变量的副本值，也叫预期值</li>
+<li>B：需要将共享变量更新到的最新值</li>
+</ul>
+<p><img src="../../../Blog/photo/01.png" alt="01"></p>
+<p>如上图中，主存中保存V值，线程中要使用V值要先从主存中读取V值到线程的工作内存A中，然后计算后变成B值，最后再把B值写回到内存V值中。多个线程共用V值都是如此操作。CAS的核心是在将B值写入到V之前要比较A值和V值是否相同，如果不相同证明此时V值已经被其他线程改变，重新将V值赋给A，并重新计算得到B，如果相同，则将B值赋给V。</p>
+<p>值得注意的是CAS机制中的这步步骤是原子性的（从指令层面提供的原子操作），所以CAS机制可以解决多线程并发编程对共享变量读写的原子性问题。</p>
+
+      </div></div>
+
+  
+  
+<div class="pagination">
+    <div class="pagination__title">
+        <span class="pagination__title-h">Read other posts</span>
+        <hr />
+    </div>
+    <div class="pagination__buttons">
+        
+        <span class="button previous">
+            <a href="https://jujunwang.github.io/posts/golang%E5%AE%9E%E7%8E%B0hashmap/">
+                <span class="button__icon">←</span>
+                <span class="button__text">Golang实现hashmap</span>
+            </a>
+        </span>
+        
+        
+        <span class="button next">
+            <a href="https://jujunwang.github.io/posts/%E7%A8%8B%E5%BA%8F%E7%9A%84%E9%93%BE%E6%8E%A5%E8%BF%87%E7%A8%8B/">
+                <span class="button__text">程序的链接过程</span>
+                <span class="button__icon">→</span>
+            </a>
+        </span>
+        
+    </div>
+</div>
+
+  
+
+  
+  
+
+  
+</div>
+
+  </div>
+
+  
+    <footer class="footer">
+  <div class="footer__inner">
+    
+      <div class="copyright">
+        <span>© 2022 Powered by <a href="http://gohugo.io">Hugo</a></span>
+    
+        <span>:: Theme made by <a href="https://twitter.com/panr">panr</a></span>
+      </div>
+  </div>
+</footer>
+
+<script src="https://jujunwang.github.io/assets/main.js"></script>
+<script src="https://jujunwang.github.io/assets/prism.js"></script>
+
+
+
+
+
+
+
+  
+</div>
+
+</body>
+</html>

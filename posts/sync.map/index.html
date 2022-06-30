@@ -191,7 +191,7 @@
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">read</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Value</span> <span style="color:#75715e">// readOnly
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#75715e">// dirty数据包含当前的map包含的entries,它包含最新的entries(包括read中未删除的数据,虽有冗余，
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// 但是提升dirty字段为read的时候非常快，不用一个一个的复制，而是直接将这个数据结构作为read字段的一部分),
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// 有些数据还可能没有移动到read字段中。对于dirty的操作需要加锁，因为对它的操作可能会有读写竞争。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// 有些数据还可能没有移动到read字段中。对于dirty的操作需要加锁，因为对它的操作可能会有读写竞争，
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#75715e">// 当dirty为空的时候， 比如初始化或者刚提升完，下一次的写操作会复制read字段中未删除的数据到这个数据中。
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">dirty</span> <span style="color:#66d9ef">map</span>[<span style="color:#66d9ef">interface</span>{}]<span style="color:#f92672">*</span><span style="color:#a6e22e">entry</span>
 </span></span><span style="display:flex;"><span>	<span style="color:#75715e">// 当从Map中读取entry的时候，如果read中不包含这个entry,会尝试从dirty中读取，这个时候会将misses加一，
@@ -414,10 +414,10 @@
 </span></span><span style="display:flex;"><span>		}
 </span></span><span style="display:flex;"><span>	}
 </span></span><span style="display:flex;"><span>}
-</span></span></code></pre></div><h2 id="总结">总结<a href="#总结" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
+</span></span></code></pre></div><h2 id="4-总结">4. 总结<a href="#4-总结" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
 <ol>
 <li><code>sync.map</code> 是线程安全的，读取，插入，删除也都保持着常数级的时间复杂度。</li>
-<li>通过读写分离，降低锁时间来提高效率，适用于读多写少的场景。</li>
+<li>通过读写分离，降低加锁时间来提高效率，适用于读多写少的场景。</li>
 <li>Range 操作需要提供一个函数，参数是 <code>k,v</code>，返回值是一个布尔值：<code>f func(key, value interface{}) bool</code>。</li>
 <li>调用 Load 或 LoadOrStore 函数时，如果在 read 中没有找到 key，则会将 misses 值原子地增加 1，当 misses 增加到和 dirty 的长度相等时，会将 dirty 提升为 read。以期减少“读 miss”。</li>
 <li>新写入的 key 会保存到 dirty 中，如果这时 dirty 为 nil，就会先新创建一个 dirty，并将 read 中未被删除的元素拷贝到 dirty。</li>

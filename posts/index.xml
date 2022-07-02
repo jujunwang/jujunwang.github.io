@@ -1,12 +1,23 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>Posts on Terminal</title>
+    <title>Posts on JujunWang&#39;s Blog</title>
     <link>https://jujunwang.github.io/posts/</link>
-    <description>Recent content in Posts on Terminal</description>
+    <description>Recent content in Posts on JujunWang&#39;s Blog</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <lastBuildDate>Wed, 29 Jun 2022 17:34:14 +0800</lastBuildDate><atom:link href="https://jujunwang.github.io/posts/index.xml" rel="self" type="application/rss+xml" />
+    <lastBuildDate>Sat, 02 Jul 2022 14:12:05 +0800</lastBuildDate><atom:link href="https://jujunwang.github.io/posts/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Godis系列 redis集群</title>
+      <link>https://jujunwang.github.io/posts/godis%E7%B3%BB%E5%88%97-redis%E9%9B%86%E7%BE%A4/</link>
+      <pubDate>Sat, 02 Jul 2022 14:12:05 +0800</pubDate>
+      
+      <guid>https://jujunwang.github.io/posts/godis%E7%B3%BB%E5%88%97-redis%E9%9B%86%E7%BE%A4/</guid>
+      <description>集群模式 </description>
+      <content>&lt;h1 id=&#34;集群模式&#34;&gt;集群模式&lt;/h1&gt;
+</content>
+    </item>
+    
     <item>
       <title>Golang实现hashmap</title>
       <link>https://jujunwang.github.io/posts/golang%E5%AE%9E%E7%8E%B0hashmap/</link>
@@ -238,7 +249,7 @@ sync.map 是线程安全的，读取，插入，删除也都保持着常数级�
 &lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;	&lt;span style=&#34;color:#75715e&#34;&gt;// 当涉及到dirty数据的操作的时候，需要使用这个锁
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#75715e&#34;&gt;&lt;/span&gt;	&lt;span style=&#34;color:#a6e22e&#34;&gt;mu&lt;/span&gt; &lt;span style=&#34;color:#a6e22e&#34;&gt;Mutex&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;	&lt;span style=&#34;color:#75715e&#34;&gt;// 一个只读的数据结构，因为只读，所以不会有读写冲突,所以从这个数据中读取总是安全的。
-&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#75715e&#34;&gt;&lt;/span&gt;	&lt;span style=&#34;color:#75715e&#34;&gt;// 实际上，实际也会更新这个数据的entries,如果entry是未删除的(unexpunged), 并不需要加锁。
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#75715e&#34;&gt;&lt;/span&gt;  &lt;span style=&#34;color:#75715e&#34;&gt;// 实际上，实际也会更新这个数据的entries,如果entry是未删除的(unexpunged), 并不需要加锁。
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#75715e&#34;&gt;&lt;/span&gt;  &lt;span style=&#34;color:#75715e&#34;&gt;// 如果entry已经被删除了，需要加锁，以便更新dirty数据。
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#75715e&#34;&gt;&lt;/span&gt;	&lt;span style=&#34;color:#a6e22e&#34;&gt;read&lt;/span&gt; &lt;span style=&#34;color:#a6e22e&#34;&gt;atomic&lt;/span&gt;.&lt;span style=&#34;color:#a6e22e&#34;&gt;Value&lt;/span&gt; &lt;span style=&#34;color:#75715e&#34;&gt;// readOnly
 &lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#75715e&#34;&gt;&lt;/span&gt;	&lt;span style=&#34;color:#75715e&#34;&gt;// dirty数据包含当前的map包含的entries,它包含最新的entries(包括read中未删除的数据,虽有冗余，

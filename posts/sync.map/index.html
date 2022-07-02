@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   
-    <title>Sync.Map :: Terminal</title>
+    <title>Sync.Map :: JujunWang&#39;s Blog</title>
   
   <meta http-equiv="content-type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -38,7 +38,7 @@
 <meta property="og:title" content="Sync.Map">
 <meta property="og:description" content="sync.Map" />
 <meta property="og:url" content="https://jujunwang.github.io/posts/sync.map/" />
-<meta property="og:site_name" content="Terminal" />
+<meta property="og:site_name" content="JujunWang&#39;s Blog" />
 
   <meta property="og:image" content="https://jujunwang.github.io">
 
@@ -186,7 +186,7 @@
 </span></span><span style="display:flex;"><span>	<span style="color:#75715e">// 当涉及到dirty数据的操作的时候，需要使用这个锁
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">mu</span> <span style="color:#a6e22e">Mutex</span>
 </span></span><span style="display:flex;"><span>	<span style="color:#75715e">// 一个只读的数据结构，因为只读，所以不会有读写冲突,所以从这个数据中读取总是安全的。
-</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#75715e">// 实际上，实际也会更新这个数据的entries,如果entry是未删除的(unexpunged), 并不需要加锁。
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// 实际上，实际也会更新这个数据的entries,如果entry是未删除的(unexpunged), 并不需要加锁。
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// 如果entry已经被删除了，需要加锁，以便更新dirty数据。
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#a6e22e">read</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Value</span> <span style="color:#75715e">// readOnly
 </span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>	<span style="color:#75715e">// dirty数据包含当前的map包含的entries,它包含最新的entries(包括read中未删除的数据,虽有冗余，

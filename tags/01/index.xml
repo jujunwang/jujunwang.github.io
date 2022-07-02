@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>01 on JujunWang&#39;s Blog</title>
+    <link>https://jujunwang.github.io/tags/01/</link>
+    <description>Recent content in 01 on JujunWang&#39;s Blog</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Sat, 02 Jul 2022 14:12:05 +0800</lastBuildDate><atom:link href="https://jujunwang.github.io/tags/01/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Godis系列 redis集群</title>
+      <link>https://jujunwang.github.io/posts/godis%E7%B3%BB%E5%88%97-redis%E9%9B%86%E7%BE%A4/</link>
+      <pubDate>Sat, 02 Jul 2022 14:12:05 +0800</pubDate>
+      
+      <guid>https://jujunwang.github.io/posts/godis%E7%B3%BB%E5%88%97-redis%E9%9B%86%E7%BE%A4/</guid>
+      <description>集群模式 </description>
+      <content>&lt;h1 id=&#34;集群模式&#34;&gt;集群模式&lt;/h1&gt;
+</content>
+    </item>
+    
+  </channel>
+</rss>

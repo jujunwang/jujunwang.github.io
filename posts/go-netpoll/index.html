@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  
+    <title>Go Netpoll :: JujunWang&#39;s Blog</title>
+  
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Go netpoll I/O多路复用构建原生网络模型" />
+<meta name="keywords" content=", " />
+<meta name="robots" content="noodp" />
+<link rel="canonical" href="https://jujunwang.github.io/posts/go-netpoll/" />
+
+
+
+
+<link rel="stylesheet" href="https://jujunwang.github.io/assets/style.css">
+
+  <link rel="stylesheet" href="https://jujunwang.github.io/assets/green.css">
+
+
+
+
+
+
+<link rel="apple-touch-icon" href="https://jujunwang.github.io/img/apple-touch-icon-192x192.png">
+
+  <link rel="shortcut icon" href="https://jujunwang.github.io/img/favicon/green.png">
+
+
+
+<meta name="twitter:card" content="summary" />
+
+
+
+<meta property="og:locale" content="en" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="Go Netpoll">
+<meta property="og:description" content="Go netpoll I/O多路复用构建原生网络模型" />
+<meta property="og:url" content="https://jujunwang.github.io/posts/go-netpoll/" />
+<meta property="og:site_name" content="JujunWang&#39;s Blog" />
+
+  <meta property="og:image" content="https://jujunwang.github.io">
+
+<meta property="og:image:width" content="2048">
+<meta property="og:image:height" content="1024">
+
+
+  <meta property="article:published_time" content="2022-07-03 21:47:32 &#43;0800 CST" />
+
+
+
+
+
+
+
+
+
+
+
+
+</head>
+<body class="green">
+
+
+<div class="container full headings--one-size">
+
+  <header class="header">
+  <div class="header__inner">
+    <div class="header__logo">
+      <a href="/">
+  <div class="logo">
+    JujunWang&#39;s Blog
+  </div>
+</a>
+
+    </div>
+    
+      <div class="menu-trigger">menu</div>
+    
+  </div>
+  
+    <nav class="menu">
+  <ul class="menu__inner menu__inner--desktop">
+    
+      
+        
+          <li><a href="https://github.com/jujunwang?tab=repositories">Github</a></li>
+        
+      
+      
+    
+
+    
+  </ul>
+
+  <ul class="menu__inner menu__inner--mobile">
+    
+      
+        <li><a href="https://github.com/jujunwang?tab=repositories">Github</a></li>
+      
+    
+    
+  </ul>
+</nav>
+
+  
+</header>
+
+
+  <div class="content">
+    
+<div class="post">
+  <h1 class="post-title">
+    <a href="https://jujunwang.github.io/posts/go-netpoll/">Go Netpoll</a></h1>
+  <div class="post-meta">
+    
+      <span class="post-date">
+        2022-07-03
+        
+      </span>
+    
+    
+    
+  </div>
+
+  
+  <span class="post-tags">
+    
+    #<a href="https://jujunwang.github.io/tags/"></a>&nbsp;
+    
+    #<a href="https://jujunwang.github.io/tags/"></a>&nbsp;
+    
+  </span>
+  
+  
+
+
+  
+
+  <div class="post-content"><div>
+        <h1 id="go-netpoll">Go-Netpoll<a href="#go-netpoll" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
+<p><strong>Go netpoll 核心</strong></p>
+<blockquote>
+<p>Go netpoll 通过在底层对 epoll/kqueue/iocp 的封装，从而实现了使用同步编程模式达到异步执行的效果。总结来说，所有的网络操作都以网络描述符 netFD 为中心实现。netFD 与底层 PollDesc 结构绑定，当在一个 netFD 上读写遇到 EAGAIN 错误时，就将当前 goroutine 存储到这个 netFD 对应的 PollDesc 中，同时调用 gopark 把当前 goroutine 给 park 住，直到这个 netFD 上再次发生读写事件，才将此 goroutine 给 ready 激活重新运行。显然，在底层通知 goroutine 再次发生读写等事件的方式就是 epoll/kqueue/iocp 等事件驱动机制。</p>
+</blockquote>
+<p>接下来我们通过分析最新的 Go 源码（v1.13.4），解读一下整个 netpoll 的运行流程。</p>
+<p>上面的示例代码中相关的在源码里的几个数据结构和方法：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#75715e">// TCPListener is a TCP network listener. Clients should typically
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// use variables of type Listener instead of assuming TCP.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">type</span> <span style="color:#a6e22e">TCPListener</span> <span style="color:#a6e22e">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">netFD</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">lc</span> <span style="color:#a6e22e">ListenConfig</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Accept implements the Accept method in the Listener interface; it
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// waits for the next call and returns a generic Conn.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">l</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">TCPListener</span>) <span style="color:#a6e22e">Accept</span>() (<span style="color:#a6e22e">Conn</span>, <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">l</span>.<span style="color:#a6e22e">ok</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">EINVAL</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">c</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">l</span>.<span style="color:#a6e22e">accept</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">OpError</span>{<span style="color:#a6e22e">Op</span><span style="color:#f92672">:</span> <span style="color:#e6db74">&#34;accept&#34;</span>, <span style="color:#a6e22e">Net</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">l</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">net</span>, <span style="color:#a6e22e">Source</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">Addr</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">l</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">laddr</span>, <span style="color:#a6e22e">Err</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">err</span>}
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">c</span>, <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">ln</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">TCPListener</span>) <span style="color:#a6e22e">accept</span>() (<span style="color:#f92672">*</span><span style="color:#a6e22e">TCPConn</span>, <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fd</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ln</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">accept</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">tc</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">newTCPConn</span>(<span style="color:#a6e22e">fd</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ln</span>.<span style="color:#a6e22e">lc</span>.<span style="color:#a6e22e">KeepAlive</span> <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">setKeepAlive</span>(<span style="color:#a6e22e">fd</span>, <span style="color:#66d9ef">true</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">ka</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ln</span>.<span style="color:#a6e22e">lc</span>.<span style="color:#a6e22e">KeepAlive</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ln</span>.<span style="color:#a6e22e">lc</span>.<span style="color:#a6e22e">KeepAlive</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">ka</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">defaultTCPKeepAlive</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">setKeepAlivePeriod</span>(<span style="color:#a6e22e">fd</span>, <span style="color:#a6e22e">ka</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">tc</span>, <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// TCPConn is an implementation of the Conn interface for TCP network
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// connections.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">type</span> <span style="color:#a6e22e">TCPConn</span> <span style="color:#a6e22e">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">conn</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Conn
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">type</span> <span style="color:#a6e22e">conn</span> <span style="color:#a6e22e">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">netFD</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">type</span> <span style="color:#a6e22e">conn</span> <span style="color:#a6e22e">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">netFD</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">conn</span>) <span style="color:#a6e22e">ok</span>() <span style="color:#a6e22e">bool</span> { <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">c</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Implementation of the Conn interface.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Read implements the Conn Read method.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">conn</span>) <span style="color:#a6e22e">Read</span>(<span style="color:#a6e22e">b</span> []<span style="color:#66d9ef">byte</span>) (<span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">ok</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">EINVAL</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">Read</span>(<span style="color:#a6e22e">b</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">EOF</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">OpError</span>{<span style="color:#a6e22e">Op</span><span style="color:#f92672">:</span> <span style="color:#e6db74">&#34;read&#34;</span>, <span style="color:#a6e22e">Net</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">net</span>, <span style="color:#a6e22e">Source</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">laddr</span>, <span style="color:#a6e22e">Addr</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">raddr</span>, <span style="color:#a6e22e">Err</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">err</span>}
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Write implements the Conn Write method.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">conn</span>) <span style="color:#a6e22e">Write</span>(<span style="color:#a6e22e">b</span> []<span style="color:#66d9ef">byte</span>) (<span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">ok</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">EINVAL</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">Write</span>(<span style="color:#a6e22e">b</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">OpError</span>{<span style="color:#a6e22e">Op</span><span style="color:#f92672">:</span> <span style="color:#e6db74">&#34;write&#34;</span>, <span style="color:#a6e22e">Net</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">net</span>, <span style="color:#a6e22e">Source</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">laddr</span>, <span style="color:#a6e22e">Addr</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">raddr</span>, <span style="color:#a6e22e">Err</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">err</span>}
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="netfd">netFD<a href="#netfd" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<p><code>net.Listen(&quot;tcp&quot;, &quot;:8888&quot;)</code> 方法返回了一个 *TCPListener，它是一个实现了 <code>net.Listener</code> 接口的 struct，而通过 <code>listener.Accept()</code> 接收的新连接 *TCPConn 则是一个实现了 <code>net.Conn</code> 接口的 struct，它内嵌了 <code>net.conn</code> struct。仔细阅读上面的源码可以发现，不管是 Listener 的 Accept 还是 Conn 的 Read/Write 方法，都是基于一个 <code>netFD</code> 的数据结构的操作， <code>netFD</code> 是一个网络描述符，类似于 Linux 的文件描述符的概念，netFD 中包含一个 poll.FD 数据结构，而 poll.FD 中包含两个重要的数据结构 Sysfd 和 pollDesc，前者是真正的系统文件描述符，后者对是底层事件驱动的封装，所有的读写超时等操作都是通过调用后者的对应方法实现的。</p>
+<p><code>netFD</code> 和 <code>poll.FD</code> 的源码：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#75715e">// Network file descriptor.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">type</span> <span style="color:#a6e22e">netFD</span> <span style="color:#a6e22e">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">pfd</span> <span style="color:#a6e22e">poll</span>.<span style="color:#a6e22e">FD</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// immutable until Close
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">family</span>      <span style="color:#66d9ef">int</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">sotype</span>      <span style="color:#66d9ef">int</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">isConnected</span> <span style="color:#a6e22e">bool</span> <span style="color:#75715e">// handshake completed or use of association with peer
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">net</span>         <span style="color:#a6e22e">string</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">laddr</span>       <span style="color:#a6e22e">Addr</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">raddr</span>       <span style="color:#a6e22e">Addr</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// FD is a file descriptor. The net and os packages use this type as a
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// field of a larger type representing a network connection or OS file.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">type</span> <span style="color:#a6e22e">FD</span> <span style="color:#a6e22e">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Lock sysfd and serialize access to Read and Write methods.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fdmu</span> <span style="color:#a6e22e">fdMutex</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// System file descriptor. Immutable until Close.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">Sysfd</span> <span style="color:#66d9ef">int</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// I/O poller.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">pd</span> <span style="color:#a6e22e">pollDesc</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Writev cache.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">iovecs</span> <span style="color:#f92672">*</span>[]<span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Iovec</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Semaphore signaled when file is closed.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">csema</span> <span style="color:#a6e22e">uint32</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Non-zero if this file has been set to blocking mode.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">isBlocking</span> <span style="color:#a6e22e">uint32</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Whether this is a streaming descriptor, as opposed to a
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// packet-based descriptor like a UDP socket. Immutable.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">IsStream</span> <span style="color:#a6e22e">bool</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Whether a zero byte read indicates EOF. This is false for a
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// message based socket connection.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">ZeroReadIsEOF</span> <span style="color:#a6e22e">bool</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// Whether this is a file rather than a network socket.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">isFile</span> <span style="color:#a6e22e">bool</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="polldesc">pollDesc<a href="#polldesc" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<p>前面提到了 pollDesc 是底层事件驱动的封装，netFD 通过它来完成各种 I/O 相关的操作，它的定义如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#a6e22e">type</span> <span style="color:#a6e22e">pollDesc</span> <span style="color:#a6e22e">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">runtimeCtx</span> <span style="color:#a6e22e">uintptr</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>这里的 struct 只包含了一个指针，而通过 pollDesc 的 init 方法，我们可以找到它具体的定义是在 <code>runtime.pollDesc</code> 这里：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">pd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>) <span style="color:#a6e22e">init</span>(<span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">FD</span>) <span style="color:#a6e22e">error</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">serverInit</span>.<span style="color:#a6e22e">Do</span>(<span style="color:#a6e22e">runtime_pollServerInit</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">ctx</span>, <span style="color:#a6e22e">errno</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">runtime_pollOpen</span>(<span style="color:#a6e22e">uintptr</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">Sysfd</span>))
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">errno</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">runtime_pollUnblock</span>(<span style="color:#a6e22e">ctx</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">runtime_pollClose</span>(<span style="color:#a6e22e">ctx</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Errno</span>(<span style="color:#a6e22e">errno</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">runtimeCtx</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">ctx</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Network poller descriptor.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// No heap pointers.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//go:notinheap
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">type</span> <span style="color:#a6e22e">pollDesc</span> <span style="color:#a6e22e">struct</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">link</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span> <span style="color:#75715e">// in pollcache, protected by pollcache.lock
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// The lock protects pollOpen, pollSetDeadline, pollUnblock and deadlineimpl operations.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// This fully covers seq, rt and wt variables. fd is constant throughout the PollDesc lifetime.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// pollReset, pollWait, pollWaitCanceled and runtime·netpollready (IO readiness notification)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// proceed w/o taking the lock. So closing, everr, rg, rd, wg and wd are manipulated
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// in a lock-free way by all operations.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// NOTE(dvyukov): the following code uses uintptr to store *g (rg/wg),
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// that will blow up when GC starts moving objects.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">lock</span>    <span style="color:#a6e22e">mutex</span> <span style="color:#75715e">// protects the following fields
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">fd</span>      <span style="color:#a6e22e">uintptr</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">closing</span> <span style="color:#a6e22e">bool</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">everr</span>   <span style="color:#a6e22e">bool</span>    <span style="color:#75715e">// marks event scanning error happened
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">user</span>    <span style="color:#a6e22e">uint32</span>  <span style="color:#75715e">// user settable cookie
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">rseq</span>    <span style="color:#a6e22e">uintptr</span> <span style="color:#75715e">// protects from stale read timers
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">rg</span>      <span style="color:#a6e22e">uintptr</span> <span style="color:#75715e">// pdReady, pdWait, G waiting for read or nil
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">rt</span>      <span style="color:#a6e22e">timer</span>   <span style="color:#75715e">// read deadline timer (set if rt.f != nil)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">rd</span>      <span style="color:#a6e22e">int64</span>   <span style="color:#75715e">// read deadline
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">wseq</span>    <span style="color:#a6e22e">uintptr</span> <span style="color:#75715e">// protects from stale write timers
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">wg</span>      <span style="color:#a6e22e">uintptr</span> <span style="color:#75715e">// pdReady, pdWait, G waiting for write or nil
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">wt</span>      <span style="color:#a6e22e">timer</span>   <span style="color:#75715e">// write deadline timer
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">wd</span>      <span style="color:#a6e22e">int64</span>   <span style="color:#75715e">// write deadline
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span></code></pre></div><p><code>runtime.pollDesc</code> 包含自身类型的一个指针，用来保存下一个 <code>runtime.pollDesc</code> 的地址，以此来实现链表，可以减少数据结构的大小，所有的 <code>runtime.pollDesc</code> 保存在 <code>runtime.pollCache</code> 结构中，定义如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#a6e22e">type</span> <span style="color:#a6e22e">pollCache</span> <span style="color:#a6e22e">struct</span> {
+</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">lock</span>  <span style="color:#a6e22e">mutex</span>
+</span></span><span style="display:flex;"><span>   <span style="color:#a6e22e">first</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>
+</span></span><span style="display:flex;"><span>   <span style="color:#75715e">// PollDesc objects must be type-stable,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#75715e">// because we can get ready notification from epoll/kqueue
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#75715e">// after the descriptor is closed/reused.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#75715e">// Stale notifications are detected using seq variable,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>   <span style="color:#75715e">// seq is incremented when deadlines are changed or descriptor is reused.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span></code></pre></div><h3 id="netlisten">net.Listen<a href="#netlisten" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<p>调用 <code>net.Listen</code> 之后，底层会通过 Linux 的系统调用 <code>socket</code> 方法创建一个 fd 分配给 listener，并用以来初始化 listener 的 <code>netFD</code> ，接着调用 netFD 的 <code>listenStream</code> 方法完成对 socket 的 bind&amp;listen 操作以及对 <code>netFD</code> 的初始化（主要是对 netFD 里的 pollDesc 的初始化），相关源码如下：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#75715e">// 调用 linux 系统调用 socket 创建 listener fd 并设置为为阻塞 I/O    
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">socketFunc</span>(<span style="color:#a6e22e">family</span>, <span style="color:#a6e22e">sotype</span><span style="color:#f92672">|</span><span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">SOCK_NONBLOCK</span><span style="color:#f92672">|</span><span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">SOCK_CLOEXEC</span>, <span style="color:#a6e22e">proto</span>)
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// On Linux the SOCK_NONBLOCK and SOCK_CLOEXEC flags were
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// introduced in 2.6.27 kernel and on FreeBSD both flags were
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// introduced in 10 kernel. If we get an EINVAL error on Linux
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// or EPROTONOSUPPORT error on FreeBSD, fall back to using
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// socket without them.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">socketFunc</span>        <span style="color:#a6e22e">func</span>(<span style="color:#66d9ef">int</span>, <span style="color:#66d9ef">int</span>, <span style="color:#66d9ef">int</span>) (<span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">error</span>)  <span style="color:#f92672">=</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Socket</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 用上面创建的 listener fd 初始化 listener netFD
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">if</span> <span style="color:#a6e22e">fd</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">newFD</span>(<span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">family</span>, <span style="color:#a6e22e">sotype</span>, <span style="color:#a6e22e">net</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">poll</span>.<span style="color:#a6e22e">CloseFunc</span>(<span style="color:#a6e22e">s</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 对 listener fd 进行 bind&amp;listen 操作，并且调用 init 方法完成初始化
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">netFD</span>) <span style="color:#a6e22e">listenStream</span>(<span style="color:#a6e22e">laddr</span> <span style="color:#a6e22e">sockaddr</span>, <span style="color:#a6e22e">backlog</span> <span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">ctrlFn</span> <span style="color:#a6e22e">func</span>(<span style="color:#a6e22e">string</span>, <span style="color:#a6e22e">string</span>, <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">RawConn</span>) <span style="color:#a6e22e">error</span>) <span style="color:#a6e22e">error</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// ...
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 完成绑定操作
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Bind</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pfd</span>.<span style="color:#a6e22e">Sysfd</span>, <span style="color:#a6e22e">lsa</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">NewSyscallError</span>(<span style="color:#e6db74">&#34;bind&#34;</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 完成监听操作
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">listenFunc</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pfd</span>.<span style="color:#a6e22e">Sysfd</span>, <span style="color:#a6e22e">backlog</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">os</span>.<span style="color:#a6e22e">NewSyscallError</span>(<span style="color:#e6db74">&#34;listen&#34;</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 调用 init，内部会调用 poll.FD.Init，最后调用 pollDesc.init
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">init</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">lsa</span>, <span style="color:#a6e22e">_</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Getsockname</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pfd</span>.<span style="color:#a6e22e">Sysfd</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">setAddr</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">addrFunc</span>()(<span style="color:#a6e22e">lsa</span>), <span style="color:#a6e22e">nil</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 使用 sync.Once 来确保一个 listener 只持有一个 epoll 实例
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">serverInit</span> <span style="color:#a6e22e">sync</span>.<span style="color:#a6e22e">Once</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// netFD.init 会调用 poll.FD.Init 并最终调用到 pollDesc.init，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// 它会创建 epoll 实例并把 listener fd 加入监听队列
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">pd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>) <span style="color:#a6e22e">init</span>(<span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">FD</span>) <span style="color:#a6e22e">error</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// runtime_pollServerInit 内部调用了 netpollinit 来创建 epoll 实例
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">serverInit</span>.<span style="color:#a6e22e">Do</span>(<span style="color:#a6e22e">runtime_pollServerInit</span>)
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// runtime_pollOpen 内部调用了 netpollopen 来将 listener fd 注册到 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// epoll 实例中，另外，它会初始化一个 pollDesc 并返回
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">ctx</span>, <span style="color:#a6e22e">errno</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">runtime_pollOpen</span>(<span style="color:#a6e22e">uintptr</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">Sysfd</span>))
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">errno</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">runtime_pollUnblock</span>(<span style="color:#a6e22e">ctx</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">runtime_pollClose</span>(<span style="color:#a6e22e">ctx</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Errno</span>(<span style="color:#a6e22e">errno</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 把真正初始化完成的 pollDesc 实例赋值给当前的 pollDesc 代表自身的指针，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 后续使用直接通过该指针操作
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">runtimeCtx</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">ctx</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">var</span> (
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 全局唯一的 epoll fd，只在 listener fd 初始化之时被指定一次
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">epfd</span> <span style="color:#a6e22e">int32</span> <span style="color:#f92672">=</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span> <span style="color:#75715e">// epoll descriptor
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>)
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// netpollinit 会创建一个 epoll 实例，然后把 epoll fd 赋值给 epfd，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// 后续 listener 以及它 accept 的所有 sockets 有关 epoll 的操作都是基于这个全局的 epfd
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">netpollinit</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">epfd</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">epollcreate1</span>(<span style="color:#a6e22e">_EPOLL_CLOEXEC</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">epfd</span> <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">epfd</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">epollcreate</span>(<span style="color:#ae81ff">1024</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">epfd</span> <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">closeonexec</span>(<span style="color:#a6e22e">epfd</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;runtime: epollcreate failed with&#34;</span>, <span style="color:#f92672">-</span><span style="color:#a6e22e">epfd</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">throw</span>(<span style="color:#e6db74">&#34;runtime: netpollinit failed&#34;</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// netpollopen 会被 runtime_pollOpen 调用，注册 fd 到 epoll 实例，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// 同时会利用万能指针把 pollDesc 保存到 epollevent 的一个 8 位的字节数组 data 里
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">netpollopen</span>(<span style="color:#a6e22e">fd</span> <span style="color:#a6e22e">uintptr</span>, <span style="color:#a6e22e">pd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>) <span style="color:#a6e22e">int32</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">ev</span> <span style="color:#a6e22e">epollevent</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">ev</span>.<span style="color:#a6e22e">events</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">_EPOLLIN</span> <span style="color:#f92672">|</span> <span style="color:#a6e22e">_EPOLLOUT</span> <span style="color:#f92672">|</span> <span style="color:#a6e22e">_EPOLLRDHUP</span> <span style="color:#f92672">|</span> <span style="color:#a6e22e">_EPOLLET</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#f92672">*</span>(<span style="color:#f92672">**</span><span style="color:#a6e22e">pollDesc</span>)(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ev</span>.<span style="color:#a6e22e">data</span>)) <span style="color:#f92672">=</span> <span style="color:#a6e22e">pd</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span><span style="color:#a6e22e">epollctl</span>(<span style="color:#a6e22e">epfd</span>, <span style="color:#a6e22e">_EPOLL_CTL_ADD</span>, <span style="color:#a6e22e">int32</span>(<span style="color:#a6e22e">fd</span>), <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ev</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>我们前面提到的 epoll 的三个基本调用，Go 在源码里实现了对那三个调用的封装：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">#</span><span style="color:#a6e22e">include</span> <span style="color:#f92672">&lt;</span><span style="color:#a6e22e">sys</span><span style="color:#f92672">/</span><span style="color:#a6e22e">epoll</span>.<span style="color:#a6e22e">h</span><span style="color:#f92672">&gt;</span>  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">epoll_create</span>(<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">size</span>);  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">epoll_ctl</span>(<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">epfd</span>, <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">op</span>, <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">fd</span>, <span style="color:#a6e22e">struct</span> <span style="color:#a6e22e">epoll_event</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">event</span>);  
+</span></span><span style="display:flex;"><span><span style="color:#66d9ef">int</span> <span style="color:#a6e22e">epoll_wait</span>(<span style="color:#66d9ef">int</span> <span style="color:#a6e22e">epfd</span>, <span style="color:#a6e22e">struct</span> <span style="color:#a6e22e">epoll_event</span> <span style="color:#f92672">*</span> <span style="color:#a6e22e">events</span>, <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">maxevents</span>, <span style="color:#66d9ef">int</span> <span style="color:#a6e22e">timeout</span>);
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Go 对上面三个调用的封装
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">netpollinit</span>()
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">netpollopen</span>(<span style="color:#a6e22e">fd</span> <span style="color:#a6e22e">uintptr</span>, <span style="color:#a6e22e">pd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>) <span style="color:#a6e22e">int32</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">netpoll</span>(<span style="color:#a6e22e">block</span> <span style="color:#a6e22e">bool</span>) <span style="color:#a6e22e">gList</span>
+</span></span></code></pre></div><p>netFD 就是通过这三个封装来对 epoll 进行创建实例、注册 fd 和等待事件操作的。</p>
+<h3 id="listeneraccept">Listener.Accept()<a href="#listeneraccept" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<p><code>netpoll</code> accept socket 的工作流程如下：</p>
+<ol>
+<li>服务端的 netFD 在 <code>listen</code> 时会创建 epoll 的实例，并将 listenerFD 加入 epoll 的事件队列</li>
+<li>netFD 在 <code>accept</code> 时将返回的 connFD 也加入 epoll 的事件队列</li>
+<li>netFD 在读写时出现 <code>syscall.EAGAIN</code> 错误，通过 pollDesc 的 <code>waitRead</code> 方法将当前的 goroutine park 住，直到 ready，从 pollDesc 的 <code>waitRead</code> 中返回</li>
+</ol>
+<p><code>Listener.Accept()</code> 接收来自客户端的新连接，具体还是调用 <code>netFD.accept</code> 方法来完成这个功能：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#75715e">// Accept implements the Accept method in the Listener interface; it
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// waits for the next call and returns a generic Conn.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">l</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">TCPListener</span>) <span style="color:#a6e22e">Accept</span>() (<span style="color:#a6e22e">Conn</span>, <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">l</span>.<span style="color:#a6e22e">ok</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">EINVAL</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">c</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">l</span>.<span style="color:#a6e22e">accept</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">OpError</span>{<span style="color:#a6e22e">Op</span><span style="color:#f92672">:</span> <span style="color:#e6db74">&#34;accept&#34;</span>, <span style="color:#a6e22e">Net</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">l</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">net</span>, <span style="color:#a6e22e">Source</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">Addr</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">l</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">laddr</span>, <span style="color:#a6e22e">Err</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">err</span>}
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">c</span>, <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">ln</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">TCPListener</span>) <span style="color:#a6e22e">accept</span>() (<span style="color:#f92672">*</span><span style="color:#a6e22e">TCPConn</span>, <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">fd</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ln</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">accept</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">tc</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">newTCPConn</span>(<span style="color:#a6e22e">fd</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ln</span>.<span style="color:#a6e22e">lc</span>.<span style="color:#a6e22e">KeepAlive</span> <span style="color:#f92672">&gt;=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">setKeepAlive</span>(<span style="color:#a6e22e">fd</span>, <span style="color:#66d9ef">true</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">ka</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">ln</span>.<span style="color:#a6e22e">lc</span>.<span style="color:#a6e22e">KeepAlive</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ln</span>.<span style="color:#a6e22e">lc</span>.<span style="color:#a6e22e">KeepAlive</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">ka</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">defaultTCPKeepAlive</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">setKeepAlivePeriod</span>(<span style="color:#a6e22e">fd</span>, <span style="color:#a6e22e">ka</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">tc</span>, <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">netFD</span>) <span style="color:#a6e22e">accept</span>() (<span style="color:#a6e22e">netfd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">netFD</span>, <span style="color:#a6e22e">err</span> <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 调用 poll.FD 的 Accept 方法接受新的 socket 连接，返回 socket 的 fd
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">rsa</span>, <span style="color:#a6e22e">errcall</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pfd</span>.<span style="color:#a6e22e">Accept</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">errcall</span> <span style="color:#f92672">!=</span> <span style="color:#e6db74">&#34;&#34;</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">wrapSyscallError</span>(<span style="color:#a6e22e">errcall</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 以 socket fd 构造一个新的 netFD，代表这个新的 socket
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">netfd</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">newFD</span>(<span style="color:#a6e22e">d</span>, <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">family</span>, <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">sotype</span>, <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">net</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">poll</span>.<span style="color:#a6e22e">CloseFunc</span>(<span style="color:#a6e22e">d</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 调用 netFD 的 init 方法完成初始化
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">netfd</span>.<span style="color:#a6e22e">init</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">Close</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">lsa</span>, <span style="color:#a6e22e">_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Getsockname</span>(<span style="color:#a6e22e">netfd</span>.<span style="color:#a6e22e">pfd</span>.<span style="color:#a6e22e">Sysfd</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">netfd</span>.<span style="color:#a6e22e">setAddr</span>(<span style="color:#a6e22e">netfd</span>.<span style="color:#a6e22e">addrFunc</span>()(<span style="color:#a6e22e">lsa</span>), <span style="color:#a6e22e">netfd</span>.<span style="color:#a6e22e">addrFunc</span>()(<span style="color:#a6e22e">rsa</span>))
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">netfd</span>, <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>netFD.accept</code> 方法里会再调用 <code>poll.FD.Accept</code> ，最后会使用 Linux 的系统调用 <code>accept</code> 来完成新连接的接收，并且会把 accept 的 socket 设置成非阻塞 I/O 模式：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#75715e">// Accept wraps the accept network call.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">FD</span>) <span style="color:#a6e22e">Accept</span>() (<span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Sockaddr</span>, <span style="color:#a6e22e">string</span>, <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">readLock</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>, <span style="color:#a6e22e">nil</span>, <span style="color:#e6db74">&#34;&#34;</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">defer</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">readUnlock</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">prepareRead</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">isFile</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>, <span style="color:#a6e22e">nil</span>, <span style="color:#e6db74">&#34;&#34;</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 使用 linux 系统调用 accept 接收新连接，创建对应的 socket
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">rsa</span>, <span style="color:#a6e22e">errcall</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">accept</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">Sysfd</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 因为 listener fd 在创建的时候已经设置成非阻塞的了，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// 所以 accept 方法会直接返回，不管有没有新连接到来；如果 err == nil 则表示正常建立新连接，直接返回
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">rsa</span>, <span style="color:#e6db74">&#34;&#34;</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 如果 err != nil，则判断 err == syscall.EAGAIN，符合条件则进入 pollDesc.waitRead 方法
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">switch</span> <span style="color:#a6e22e">err</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">EAGAIN</span><span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">pollable</span>() {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// 如果当前没有发生期待的 I/O 事件，那么 waitRead 会通过 park goroutine 让逻辑 block 在这里
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">waitRead</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">isFile</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">continue</span>
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">case</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">ECONNABORTED</span><span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// This means that a socket on the listen
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#75715e">// queue was closed before we Accept()ed it;
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#75715e">// it&#39;s a silly error, so try again.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">continue</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>, <span style="color:#a6e22e">nil</span>, <span style="color:#a6e22e">errcall</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// 使用 linux 的 accept 系统调用接收新连接并把这个 socket fd 设置成非阻塞 I/O
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">ns</span>, <span style="color:#a6e22e">sa</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">Accept4Func</span>(<span style="color:#a6e22e">s</span>, <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">SOCK_NONBLOCK</span><span style="color:#f92672">|</span><span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">SOCK_CLOEXEC</span>)
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// On Linux the accept4 system call was introduced in 2.6.28
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// kernel and on FreeBSD it was introduced in 10 kernel. If we
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// get an ENOSYS error on both Linux and FreeBSD, or EINVAL
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// error on Linux, fall back to using accept.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Accept4Func is used to hook the accept4 call.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">Accept4Func</span> <span style="color:#a6e22e">func</span>(<span style="color:#66d9ef">int</span>, <span style="color:#66d9ef">int</span>) (<span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Sockaddr</span>, <span style="color:#a6e22e">error</span>) <span style="color:#f92672">=</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Accept4</span>
+</span></span></code></pre></div><p><code>pollDesc.waitRead</code> 方法主要负责检测当前这个 pollDesc 的上层 netFD 对应的 fd 是否有『期待的』I/O 事件发生，如果有就直接返回，否则就 park 住当前的 goroutine 并持续等待直至对应的 fd 上发生可读/可写或者其他『期待的』I/O 事件为止，然后它就会返回到外层的 for 循环，让 goroutine 继续执行逻辑。</p>
+<p>poll.FD.Accept() 返回之后，会构造一个对应这个新 socket 的 netFD，然后调用 init() 方法完成初始化，这个 init 过程和前面 net.Listen() 是一样的，调用链：netFD.init() &ndash;&gt; poll.FD.Init() &ndash;&gt; poll.pollDesc.init()，最终又会走到这里：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#66d9ef">var</span> <span style="color:#a6e22e">serverInit</span> <span style="color:#a6e22e">sync</span>.<span style="color:#a6e22e">Once</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">pd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>) <span style="color:#a6e22e">init</span>(<span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">FD</span>) <span style="color:#a6e22e">error</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">serverInit</span>.<span style="color:#a6e22e">Do</span>(<span style="color:#a6e22e">runtime_pollServerInit</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">ctx</span>, <span style="color:#a6e22e">errno</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">runtime_pollOpen</span>(<span style="color:#a6e22e">uintptr</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">Sysfd</span>))
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">errno</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ctx</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">runtime_pollUnblock</span>(<span style="color:#a6e22e">ctx</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">runtime_pollClose</span>(<span style="color:#a6e22e">ctx</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Errno</span>(<span style="color:#a6e22e">errno</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">runtimeCtx</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">ctx</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>然后把这个 socket fd 注册到 listener 的 epoll 实例的事件队列中去，等待 I/O 事件。</p>
+<h3 id="connreadconnwrite">Conn.Read/Conn.Write<a href="#connreadconnwrite" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<p>我们先来看看 <code>Conn.Read</code> 方法是如何实现的，原理其实和 <code>Listener.Accept</code> 是一样的，具体调用链还是首先调用 conn 的 <code>netFD.Read</code> ，然后内部再调用 <code>poll.FD.Read</code> ，最后使用 Linux 的系统调用 read: <code>syscall.Read</code> 完成数据读取：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#75715e">// Implementation of the Conn interface.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Read implements the Conn Read method.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">c</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">conn</span>) <span style="color:#a6e22e">Read</span>(<span style="color:#a6e22e">b</span> []<span style="color:#66d9ef">byte</span>) (<span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">ok</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">EINVAL</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">Read</span>(<span style="color:#a6e22e">b</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">io</span>.<span style="color:#a6e22e">EOF</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">OpError</span>{<span style="color:#a6e22e">Op</span><span style="color:#f92672">:</span> <span style="color:#e6db74">&#34;read&#34;</span>, <span style="color:#a6e22e">Net</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">net</span>, <span style="color:#a6e22e">Source</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">laddr</span>, <span style="color:#a6e22e">Addr</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">c</span>.<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">raddr</span>, <span style="color:#a6e22e">Err</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">err</span>}
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">netFD</span>) <span style="color:#a6e22e">Read</span>(<span style="color:#a6e22e">p</span> []<span style="color:#66d9ef">byte</span>) (<span style="color:#a6e22e">n</span> <span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">err</span> <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pfd</span>.<span style="color:#a6e22e">Read</span>(<span style="color:#a6e22e">p</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">KeepAlive</span>(<span style="color:#a6e22e">fd</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">wrapSyscallError</span>(<span style="color:#e6db74">&#34;read&#34;</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Read implements io.Reader.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> (<span style="color:#a6e22e">fd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">FD</span>) <span style="color:#a6e22e">Read</span>(<span style="color:#a6e22e">p</span> []<span style="color:#66d9ef">byte</span>) (<span style="color:#66d9ef">int</span>, <span style="color:#a6e22e">error</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">readLock</span>(); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">defer</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">readUnlock</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">len</span>(<span style="color:#a6e22e">p</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// If the caller wanted a zero byte read, return immediately
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// without trying (but after acquiring the readLock).
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// Otherwise syscall.Read returns 0, nil which looks like
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// io.EOF.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// TODO(bradfitz): make it wait for readability? (Issue 15735)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">prepareRead</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">isFile</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">IsStream</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">len</span>(<span style="color:#a6e22e">p</span>) <span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">maxRW</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">p</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">p</span>[<span style="color:#f92672">:</span><span style="color:#a6e22e">maxRW</span>]
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 尝试从该 socket 读取数据，因为 socket 在被 listener accept 的时候设置成
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// 了非阻塞 I/O，所以这里同样也是直接返回，不管有没有可读的数据
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">Read</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">Sysfd</span>, <span style="color:#a6e22e">p</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">n</span> <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// err == syscall.EAGAIN 表示当前没有期待的 I/O 事件发生，也就是 socket 不可读
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">EAGAIN</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">pollable</span>() {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// 如果当前没有发生期待的 I/O 事件，那么 waitRead 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#75715e">// 会通过 park goroutine 让逻辑 block 在这里
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">waitRead</span>(<span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">isFile</span>); <span style="color:#a6e22e">err</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>                    <span style="color:#66d9ef">continue</span>
+</span></span><span style="display:flex;"><span>                }
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// On MacOS we can see EINTR here if the user
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#75715e">// pressed ^Z.  See issue #22838.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">runtime</span>.<span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;darwin&#34;</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">syscall</span>.<span style="color:#a6e22e">EINTR</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#66d9ef">continue</span>
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">fd</span>.<span style="color:#a6e22e">eofError</span>(<span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">err</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">n</span>, <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p><code>conn.Write</code> 和 <code>conn.Read</code> 的原理是一致的，它也是通过类似 <code>pollDesc.waitRead</code> 的 <code>pollDesc.waitWrite</code> 来 park 住 goroutine 直至期待的 I/O 事件发生才返回，而 <code>pollDesc.waitWrite</code> 的内部实现原理和 <code>pollDesc.waitRead</code> 是一样的，都是基于 <code>runtime_pollWait</code> ，这里就不再赘述。</p>
+<h3 id="polldescwaitread">pollDesc.waitRead<a href="#polldescwaitread" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<p><code>pollDesc.waitRead</code> 内部调用了 <code>runtime_pollWait</code> 来达成无 I/O 事件时 park 住 goroutine 的目的：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#75715e">//go:linkname poll_runtime_pollWait internal/poll.runtime_pollWait
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">poll_runtime_pollWait</span>(<span style="color:#a6e22e">pd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>, <span style="color:#a6e22e">mode</span> <span style="color:#66d9ef">int</span>) <span style="color:#66d9ef">int</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">err</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">netpollcheckerr</span>(<span style="color:#a6e22e">pd</span>, <span style="color:#a6e22e">int32</span>(<span style="color:#a6e22e">mode</span>))
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// As for now only Solaris, illumos, and AIX use level-triggered IO.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;solaris&#34;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;illumos&#34;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">GOOS</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#34;aix&#34;</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">netpollarm</span>(<span style="color:#a6e22e">pd</span>, <span style="color:#a6e22e">mode</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 进入 netpollblock 并且判断是否有期待的 I/O 事件发生，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 这里的 for 循环是为了一直等到 io ready
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">netpollblock</span>(<span style="color:#a6e22e">pd</span>, <span style="color:#a6e22e">int32</span>(<span style="color:#a6e22e">mode</span>), <span style="color:#66d9ef">false</span>) {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">err</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">netpollcheckerr</span>(<span style="color:#a6e22e">pd</span>, <span style="color:#a6e22e">int32</span>(<span style="color:#a6e22e">mode</span>))
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">err</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">err</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Can happen if timeout has fired and unblocked us,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// but before we had a chance to run, timeout has been reset.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// Pretend it has not happened and retry.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// returns true if IO is ready, or false if timedout or closed
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// waitio - wait only for completed IO, ignore errors
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">netpollblock</span>(<span style="color:#a6e22e">pd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>, <span style="color:#a6e22e">mode</span> <span style="color:#a6e22e">int32</span>, <span style="color:#a6e22e">waitio</span> <span style="color:#a6e22e">bool</span>) <span style="color:#a6e22e">bool</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// gpp 保存的是 goroutine 的数据结构 g，这里会根据 mode 的值决定是 rg 还是 wg
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 后面调用 gopark 之后，会把当前的 goroutine 的抽象数据结构 g 存入 gpp 这个指针
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">gpp</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">rg</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">mode</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;w&#39;</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">gpp</span> <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">wg</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// set the gpp semaphore to WAIT
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 这个 for 循环是为了等待 io ready 或者 io wait
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">for</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">old</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">gpp</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// gpp == pdReady 表示此时已有期待的 I/O 事件发生，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// 可以直接返回 unblock 当前 goroutine 并执行响应的 I/O 操作
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">old</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">pdReady</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#f92672">*</span><span style="color:#a6e22e">gpp</span> <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">old</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span>(<span style="color:#e6db74">&#34;runtime: double wait&#34;</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 如果没有期待的 I/O 事件发生，则通过原子操作把 gpp 的值置为 pdWait 并退出 for 循环
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Casuintptr</span>(<span style="color:#a6e22e">gpp</span>, <span style="color:#ae81ff">0</span>, <span style="color:#a6e22e">pdWait</span>) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">break</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// need to recheck error states after setting gpp to WAIT
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// this is necessary because runtime_pollUnblock/runtime_pollSetDeadline/deadlineimpl
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// do the opposite: store to closing/rd/wd, membarrier, load of rg/wg
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// waitio 此时是 false，netpollcheckerr 方法会检查当前 pollDesc 对应的 fd 是否是正常的，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 通常来说  netpollcheckerr(pd, mode) == 0 是成立的，所以这里会执行 gopark 
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 把当前 goroutine 给 park 住，直至对应的 fd 上发生可读/可写或者其他『期待的』I/O 事件为止，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 然后 unpark 返回，在 gopark 内部会把当前 goroutine 的抽象数据结构 g 存入
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// gpp(pollDesc.rg/pollDesc.wg) 指针里，以便在后面的 netpoll 函数取出 pollDesc 之后，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 把 g 添加到链表里返回，接着重新调度 goroutine
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">waitio</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">netpollcheckerr</span>(<span style="color:#a6e22e">pd</span>, <span style="color:#a6e22e">mode</span>) <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 注册 netpollblockcommit 回调给 gopark，在 gopark 内部会执行它，保存当前 goroutine 到 gpp
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">gopark</span>(<span style="color:#a6e22e">netpollblockcommit</span>, <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">gpp</span>), <span style="color:#a6e22e">waitReasonIOWait</span>, <span style="color:#a6e22e">traceEvGoBlockNet</span>, <span style="color:#ae81ff">5</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// be careful to not lose concurrent READY notification
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">old</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Xchguintptr</span>(<span style="color:#a6e22e">gpp</span>, <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">old</span> <span style="color:#f92672">&gt;</span> <span style="color:#a6e22e">pdWait</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span>(<span style="color:#e6db74">&#34;runtime: corrupted polldesc&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">old</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">pdReady</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// gopark 会停住当前的 goroutine 并且调用传递进来的回调函数 unlockf，从上面的源码我们可以知道这个函数是
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// netpollblockcommit
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">gopark</span>(<span style="color:#a6e22e">unlockf</span> <span style="color:#a6e22e">func</span>(<span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>, <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>) <span style="color:#a6e22e">bool</span>, <span style="color:#a6e22e">lock</span> <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>, <span style="color:#a6e22e">reason</span> <span style="color:#a6e22e">waitReason</span>, <span style="color:#a6e22e">traceEv</span> <span style="color:#66d9ef">byte</span>, <span style="color:#a6e22e">traceskip</span> <span style="color:#66d9ef">int</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">reason</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">waitReasonSleep</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">checkTimeouts</span>() <span style="color:#75715e">// timeouts may expire while two goroutines keep the scheduler busy
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">mp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">acquirem</span>()
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">mp</span>.<span style="color:#a6e22e">curg</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">status</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">readgstatus</span>(<span style="color:#a6e22e">gp</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">status</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">_Grunning</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">status</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">_Gscanrunning</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">throw</span>(<span style="color:#e6db74">&#34;gopark: bad g status&#34;</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">mp</span>.<span style="color:#a6e22e">waitlock</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">lock</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">mp</span>.<span style="color:#a6e22e">waitunlockf</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">unlockf</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">gp</span>.<span style="color:#a6e22e">waitreason</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">reason</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">mp</span>.<span style="color:#a6e22e">waittraceev</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">traceEv</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">mp</span>.<span style="color:#a6e22e">waittraceskip</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">traceskip</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">releasem</span>(<span style="color:#a6e22e">mp</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// can&#39;t do anything that might move the G between Ms here.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  <span style="color:#75715e">// gopark 最终会调用 park_m，在这个函数内部会调用 unlockf，也就是 netpollblockcommit，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 然后会把当前的 goroutine，也就是 g 数据结构保存到 pollDesc 的 rg 或者 wg 指针里
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">mcall</span>(<span style="color:#a6e22e">park_m</span>)
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// park continuation on g0.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">park_m</span>(<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">_g_</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">getg</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">trace</span>.<span style="color:#a6e22e">enabled</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">traceGoPark</span>(<span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">waittraceev</span>, <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">waittraceskip</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">casgstatus</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">_Grunning</span>, <span style="color:#a6e22e">_Gwaiting</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">dropg</span>()
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">fn</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">waitunlockf</span>; <span style="color:#a6e22e">fn</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 调用 netpollblockcommit，把当前的 goroutine，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// 也就是 g 数据结构保存到 pollDesc 的 rg 或者 wg 指针里
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">ok</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">fn</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">waitlock</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">waitunlockf</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">_g_</span>.<span style="color:#a6e22e">m</span>.<span style="color:#a6e22e">waitlock</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">ok</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">trace</span>.<span style="color:#a6e22e">enabled</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">traceGoUnpark</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#ae81ff">2</span>)
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">casgstatus</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">_Gwaiting</span>, <span style="color:#a6e22e">_Grunnable</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">execute</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#66d9ef">true</span>) <span style="color:#75715e">// Schedule it back, never returns.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">schedule</span>()
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// netpollblockcommit 在 gopark 函数里被调用
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">netpollblockcommit</span>(<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>, <span style="color:#a6e22e">gpp</span> <span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>) <span style="color:#a6e22e">bool</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 通过原子操作把当前 goroutine 抽象的数据结构 g，也就是这里的参数 gp 存入 gpp 指针，
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// 此时 gpp 的值是 pollDesc 的 rg 或者 wg 指针
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">r</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Casuintptr</span>((<span style="color:#f92672">*</span><span style="color:#a6e22e">uintptr</span>)(<span style="color:#a6e22e">gpp</span>), <span style="color:#a6e22e">pdWait</span>, <span style="color:#a6e22e">uintptr</span>(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">gp</span>)))
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">r</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// Bump the count of goroutines waiting for the poller.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// The scheduler uses this to decide whether to block
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// waiting for the poller if there is nothing else to do.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Xadd</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">netpollWaiters</span>, <span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">r</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><h3 id="netpoll">netpoll<a href="#netpoll" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<p>前面已经从源码的角度分析完了 netpoll 是如何通过 park goroutine 从而达到阻塞 Accept/Read/Write 的效果，而通过调用 gopark，goroutine 会被放置在某个等待队列中(如 channel 的 waitq ，此时 G 的状态由 <code>_Grunning</code> 为 <code>_Gwaitting</code> )，因此 G 必须被手动唤醒(通过 goready )，否则会丢失任务，应用层阻塞通常使用这种方式。</p>
+<p>所以，最后还有一个非常关键的问题是：当 I/O 事件发生之后，netpoll 是通过什么方式唤醒那些在 I/O wait 的 goroutine 的？答案是通过 <code>epoll_wait</code> ，在 Go 源码中的 <code>src/runtime/netpoll_epoll.go</code> 文件中有一个 <code>func netpoll(block bool) gList</code> 方法，它会内部调用 <code>epoll_wait</code> 获取就绪的 fd 列表，<strong>并将每个 fd 对应的 goroutine 添加到链表返回</strong>：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#75715e">// polls for ready network connections
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// returns list of goroutines that become runnable
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">netpoll</span>(<span style="color:#a6e22e">block</span> <span style="color:#a6e22e">bool</span>) <span style="color:#a6e22e">gList</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">epfd</span> <span style="color:#f92672">==</span> <span style="color:#f92672">-</span><span style="color:#ae81ff">1</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">gList</span>{}
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">waitms</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">int32</span>(<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 是否以阻塞模式调用 epoll_wait
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">block</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">waitms</span> <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">events</span> [<span style="color:#ae81ff">128</span>]<span style="color:#a6e22e">epollevent</span>
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">retry</span><span style="color:#f92672">:</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// 获取就绪的 fd 列表
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">n</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">epollwait</span>(<span style="color:#a6e22e">epfd</span>, <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">events</span>[<span style="color:#ae81ff">0</span>], <span style="color:#a6e22e">int32</span>(<span style="color:#a6e22e">len</span>(<span style="color:#a6e22e">events</span>)), <span style="color:#a6e22e">waitms</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">n</span> <span style="color:#f92672">&lt;</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">n</span> <span style="color:#f92672">!=</span> <span style="color:#f92672">-</span><span style="color:#a6e22e">_EINTR</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">println</span>(<span style="color:#e6db74">&#34;runtime: epollwait on fd&#34;</span>, <span style="color:#a6e22e">epfd</span>, <span style="color:#e6db74">&#34;failed with&#34;</span>, <span style="color:#f92672">-</span><span style="color:#a6e22e">n</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">throw</span>(<span style="color:#e6db74">&#34;runtime: netpoll failed&#34;</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">goto</span> <span style="color:#a6e22e">retry</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// toRun 是一个 g 的链表，存储要恢复的 goroutines，最后返回给调用方
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">toRun</span> <span style="color:#a6e22e">gList</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">int32</span>(<span style="color:#ae81ff">0</span>); <span style="color:#a6e22e">i</span> <span style="color:#f92672">&lt;</span> <span style="color:#a6e22e">n</span>; <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">ev</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">events</span>[<span style="color:#a6e22e">i</span>]
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ev</span>.<span style="color:#a6e22e">events</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">continue</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">mode</span> <span style="color:#a6e22e">int32</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 判断发生的事件类型，读类型或者写类型
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ev</span>.<span style="color:#a6e22e">events</span><span style="color:#f92672">&amp;</span>(<span style="color:#a6e22e">_EPOLLIN</span><span style="color:#f92672">|</span><span style="color:#a6e22e">_EPOLLRDHUP</span><span style="color:#f92672">|</span><span style="color:#a6e22e">_EPOLLHUP</span><span style="color:#f92672">|</span><span style="color:#a6e22e">_EPOLLERR</span>) <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">mode</span> <span style="color:#f92672">+=</span> <span style="color:#e6db74">&#39;r&#39;</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ev</span>.<span style="color:#a6e22e">events</span><span style="color:#f92672">&amp;</span>(<span style="color:#a6e22e">_EPOLLOUT</span><span style="color:#f92672">|</span><span style="color:#a6e22e">_EPOLLHUP</span><span style="color:#f92672">|</span><span style="color:#a6e22e">_EPOLLERR</span>) <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">mode</span> <span style="color:#f92672">+=</span> <span style="color:#e6db74">&#39;w&#39;</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">mode</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 取出保存在 epollevent 里的 pollDesc
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#a6e22e">pd</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">*</span>(<span style="color:#f92672">**</span><span style="color:#a6e22e">pollDesc</span>)(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">ev</span>.<span style="color:#a6e22e">data</span>))
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">everr</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">false</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ev</span>.<span style="color:#a6e22e">events</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">_EPOLLERR</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">everr</span> <span style="color:#f92672">=</span> <span style="color:#66d9ef">true</span>
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 调用 netpollready，传入就绪 fd 的 pollDesc，把 fd 对应的 goroutine 添加到链表 toRun 中
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#a6e22e">netpollready</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">toRun</span>, <span style="color:#a6e22e">pd</span>, <span style="color:#a6e22e">mode</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">block</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">toRun</span>.<span style="color:#a6e22e">empty</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">goto</span> <span style="color:#a6e22e">retry</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">toRun</span>
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// netpollready 调用 netpollunblock 返回就绪 fd 对应的 goroutine 的抽象数据结构 g
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">netpollready</span>(<span style="color:#a6e22e">toRun</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">gList</span>, <span style="color:#a6e22e">pd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>, <span style="color:#a6e22e">mode</span> <span style="color:#a6e22e">int32</span>) {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">rg</span>, <span style="color:#a6e22e">wg</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">mode</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;r&#39;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">mode</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;r&#39;</span><span style="color:#f92672">+</span><span style="color:#e6db74">&#39;w&#39;</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">rg</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">netpollunblock</span>(<span style="color:#a6e22e">pd</span>, <span style="color:#e6db74">&#39;r&#39;</span>, <span style="color:#66d9ef">true</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">mode</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;w&#39;</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">mode</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;r&#39;</span><span style="color:#f92672">+</span><span style="color:#e6db74">&#39;w&#39;</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">wg</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">netpollunblock</span>(<span style="color:#a6e22e">pd</span>, <span style="color:#e6db74">&#39;w&#39;</span>, <span style="color:#66d9ef">true</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">rg</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">toRun</span>.<span style="color:#a6e22e">push</span>(<span style="color:#a6e22e">rg</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">wg</span> <span style="color:#f92672">!=</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">toRun</span>.<span style="color:#a6e22e">push</span>(<span style="color:#a6e22e">wg</span>)
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// netpollunblock 会依据传入的 mode 决定从 pollDesc 的 rg 或者 wg 取出当时 gopark 之时存入的
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// goroutine 抽象数据结构 g 并返回
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">netpollunblock</span>(<span style="color:#a6e22e">pd</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">pollDesc</span>, <span style="color:#a6e22e">mode</span> <span style="color:#a6e22e">int32</span>, <span style="color:#a6e22e">ioready</span> <span style="color:#a6e22e">bool</span>) <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// mode == &#39;r&#39; 代表当时 gopark 是为了等待读事件，而 mode == &#39;w&#39; 则代表是等待写事件
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#a6e22e">gpp</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">rg</span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">mode</span> <span style="color:#f92672">==</span> <span style="color:#e6db74">&#39;w&#39;</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">gpp</span> <span style="color:#f92672">=</span> <span style="color:#f92672">&amp;</span><span style="color:#a6e22e">pd</span>.<span style="color:#a6e22e">wg</span>
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">for</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 取出 gpp 存储的 g
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">old</span> <span style="color:#f92672">:=</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">gpp</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">old</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">pdReady</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">old</span> <span style="color:#f92672">==</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">ioready</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// Only set READY for ioready. runtime_pollWait
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#75715e">// will check for timeout/cancel before waiting.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nil</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">var</span> <span style="color:#66d9ef">new</span> <span style="color:#a6e22e">uintptr</span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">ioready</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">new</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">pdReady</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// 重置 pollDesc 的 rg 或者 wg
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Casuintptr</span>(<span style="color:#a6e22e">gpp</span>, <span style="color:#a6e22e">old</span>, <span style="color:#66d9ef">new</span>) {
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">old</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">pdReady</span> <span style="color:#f92672">||</span> <span style="color:#a6e22e">old</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">pdWait</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">old</span> <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 通过万能指针还原成 g 并返回
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">return</span> (<span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>)(<span style="color:#a6e22e">unsafe</span>.<span style="color:#a6e22e">Pointer</span>(<span style="color:#a6e22e">old</span>))
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>而 Go 在多种场景下都可能会调用 <code>netpoll</code> 检查文件描述符状态。寻找到 I/O 就绪的 socket fd，并找到这些 socket fd 对应的轮询器中附带的信息，根据这些信息将之前等待这些 socket fd 就绪的 goroutine 状态修改为 <code>_Grunnable</code> 。执行完 <code>netpoll</code> 之后，会返回一个就绪 fd 列表对应的 goroutine 列表，接下来将就绪的 goroutine 加入到调度队列中，等待调度运行。</p>
+<p>首先，在 Go runtime scheduler 正常调度 goroutine 之时就有可能会调用 <code>netpoll</code> 获取到已就绪的 fd 对应的 goroutine 来调度执行：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#75715e">// One round of scheduler: find a runnable goroutine and execute it.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Never returns.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">schedule</span>() {
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// ...
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">gp</span> <span style="color:#f92672">==</span> <span style="color:#a6e22e">nil</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">inheritTime</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">findrunnable</span>() <span style="color:#75715e">// blocks until work is available
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    }
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>    <span style="color:#75715e">// ...
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span><span style="color:#75715e">// Finds a runnable goroutine to execute.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">// Tries to steal from other P&#39;s, get g from global queue, poll network.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">findrunnable</span>() (<span style="color:#a6e22e">gp</span> <span style="color:#f92672">*</span><span style="color:#a6e22e">g</span>, <span style="color:#a6e22e">inheritTime</span> <span style="color:#a6e22e">bool</span>) {
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// ...
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// Poll network.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// This netpoll is only an optimization before we resort to stealing.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// We can safely skip it if there are no waiters or a thread is blocked
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// in netpoll already. If there is any kind of logical race with that
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// blocked thread (e.g. it has already returned from netpoll, but does
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// not set lastpoll yet), this thread will do blocking netpoll below
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#75715e">// anyway.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>    <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">netpollinited</span>() <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Load</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">netpollWaiters</span>) <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Load64</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lastpoll</span>) <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">list</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">netpoll</span>(<span style="color:#66d9ef">false</span>); <span style="color:#f92672">!</span><span style="color:#a6e22e">list</span>.<span style="color:#a6e22e">empty</span>() { <span style="color:#75715e">// non-blocking
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#a6e22e">gp</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">list</span>.<span style="color:#a6e22e">pop</span>()
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">injectglist</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">list</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">casgstatus</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#a6e22e">_Gwaiting</span>, <span style="color:#a6e22e">_Grunnable</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">trace</span>.<span style="color:#a6e22e">enabled</span> {
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">traceGoUnpark</span>(<span style="color:#a6e22e">gp</span>, <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">gp</span>, <span style="color:#66d9ef">false</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>  
+</span></span><span style="display:flex;"><span>  <span style="color:#75715e">// ...
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>}
+</span></span></code></pre></div><p>Go scheduler 的核心方法 <code>schedule</code> 里会调用一个叫 <code>findrunable()</code> 的方法获取可运行的 goroutine 来执行，而在 <code>findrunable()</code> 方法里就调用了 <code>netpoll</code> 获取已就绪的 fd 列表对应的 goroutine 列表。</p>
+<p>另外， <code>sysmon</code> 监控线程也可能会调用到 <code>netpoll</code> ：</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#75715e">// Always runs without a P, so write barriers are not allowed.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e">//go:nowritebarrierrec
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span><span style="color:#a6e22e">func</span> <span style="color:#a6e22e">sysmon</span>() {
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// ...
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">now</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">nanotime</span>()
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">netpollinited</span>() <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">lastpoll</span> <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">lastpoll</span><span style="color:#f92672">+</span><span style="color:#ae81ff">10</span><span style="color:#f92672">*</span><span style="color:#ae81ff">1000</span><span style="color:#f92672">*</span><span style="color:#ae81ff">1000</span> <span style="color:#f92672">&lt;</span> <span style="color:#a6e22e">now</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Cas64</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">sched</span>.<span style="color:#a6e22e">lastpoll</span>, <span style="color:#a6e22e">uint64</span>(<span style="color:#a6e22e">lastpoll</span>), <span style="color:#a6e22e">uint64</span>(<span style="color:#a6e22e">now</span>))
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">// 以非阻塞的方式调用 netpoll 获取就绪 fd 列表
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#a6e22e">list</span> <span style="color:#f92672">:=</span> <span style="color:#a6e22e">netpoll</span>(<span style="color:#66d9ef">false</span>) <span style="color:#75715e">// non-blocking - returns list of goroutines
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">if</span> <span style="color:#f92672">!</span><span style="color:#a6e22e">list</span>.<span style="color:#a6e22e">empty</span>() {
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// Need to decrement number of idle locked M&#39;s
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#75715e">// (pretending that one more is running) before injectglist.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#75715e">// Otherwise it can lead to the following situation:
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#75715e">// injectglist grabs all P&#39;s but before it starts M&#39;s to run the P&#39;s,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#75715e">// another M returns from syscall, finishes running its G,
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#75715e">// observes that there is no work to do and no other running M&#39;s
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#75715e">// and reports deadlock.
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#a6e22e">incidlelocked</span>(<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>                <span style="color:#75715e">// 将其插入调度器的runnable列表中（全局），等待被调度执行
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>                <span style="color:#a6e22e">injectglist</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">list</span>)
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">incidlelocked</span>(<span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// retake P&#39;s blocked in syscalls
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// and preempt long running G&#39;s
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">retake</span>(<span style="color:#a6e22e">now</span>) <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">idle</span> <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>        } <span style="color:#66d9ef">else</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">idle</span><span style="color:#f92672">++</span>
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">// check if we need to force a GC
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">t</span> <span style="color:#f92672">:=</span> (<span style="color:#a6e22e">gcTrigger</span>{<span style="color:#a6e22e">kind</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">gcTriggerTime</span>, <span style="color:#a6e22e">now</span><span style="color:#f92672">:</span> <span style="color:#a6e22e">now</span>}); <span style="color:#a6e22e">t</span>.<span style="color:#a6e22e">test</span>() <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">atomic</span>.<span style="color:#a6e22e">Load</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">forcegc</span>.<span style="color:#a6e22e">idle</span>) <span style="color:#f92672">!=</span> <span style="color:#ae81ff">0</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">lock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">forcegc</span>.<span style="color:#a6e22e">lock</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">forcegc</span>.<span style="color:#a6e22e">idle</span> <span style="color:#f92672">=</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">list</span> <span style="color:#a6e22e">gList</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">list</span>.<span style="color:#a6e22e">push</span>(<span style="color:#a6e22e">forcegc</span>.<span style="color:#a6e22e">g</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">injectglist</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">list</span>)
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">unlock</span>(<span style="color:#f92672">&amp;</span><span style="color:#a6e22e">forcegc</span>.<span style="color:#a6e22e">lock</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">debug</span>.<span style="color:#a6e22e">schedtrace</span> <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span> <span style="color:#f92672">&amp;&amp;</span> <span style="color:#a6e22e">lasttrace</span><span style="color:#f92672">+</span><span style="color:#a6e22e">int64</span>(<span style="color:#a6e22e">debug</span>.<span style="color:#a6e22e">schedtrace</span>)<span style="color:#f92672">*</span><span style="color:#ae81ff">1000000</span> <span style="color:#f92672">&lt;=</span> <span style="color:#a6e22e">now</span> {
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">lasttrace</span> <span style="color:#f92672">=</span> <span style="color:#a6e22e">now</span>
+</span></span><span style="display:flex;"><span>            <span style="color:#a6e22e">schedtrace</span>(<span style="color:#a6e22e">debug</span>.<span style="color:#a6e22e">scheddetail</span> <span style="color:#f92672">&gt;</span> <span style="color:#ae81ff">0</span>)
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>    }
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><p>Go runtime 在程序启动的时候会创建一个独立的 M 作为监控线程，叫 <code>sysmon</code> ，这个线程为系统级的 daemon 线程，无需 P 即可运行， <code>sysmon</code> 每 20us~10ms 运行一次。 <code>sysmon</code> 中以轮询的方式执行以下操作（如上面的代码所示）：</p>
+<ol>
+<li>以非阻塞的方式调用 <code>runtime.netpoll</code> ，从中找出能从网络 I/O 中唤醒的 G，并调用 <code>injectglist</code> ，将其插入调度器的 runnable 列表中（全局），调度触发时，有可能从这个全局 runnable 列表获取 G。然后再循环调用 <code>startm</code> ，直到所有 P 都不处于 <code>_Pidle</code> 状态。</li>
+<li>调用 <code>retake</code> ，抢占长时间处于 <code>_Psyscall</code> 状态的 P。</li>
+</ol>
+<p>综上，Go 借助于 epoll/kqueue/iocp 和 runtime scheduler 等的帮助，设计出了自己的 I/O 多路复用 netpoll，成功地让 <code>Listener.Accept</code> / <code>conn.Read</code> / <code>conn.Write</code> 等方法从开发者的角度看来是同步模式。</p>
+<h3 id="参考">参考<a href="#参考" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<blockquote>
+<p><a href="https://cloud.tencent.com/developer/news/600726">https://cloud.tencent.com/developer/news/600726</a></p>
+</blockquote>
+
+      </div></div>
+
+  
+  
+<div class="pagination">
+    <div class="pagination__title">
+        <span class="pagination__title-h">Read other posts</span>
+        <hr />
+    </div>
+    <div class="pagination__buttons">
+        
+        
+        <span class="button next">
+            <a href="https://jujunwang.github.io/posts/godis%E7%B3%BB%E5%88%97-redis%E9%9B%86%E7%BE%A4/">
+                <span class="button__text">Godis系列 redis集群</span>
+                <span class="button__icon">→</span>
+            </a>
+        </span>
+        
+    </div>
+</div>
+
+  
+
+  
+  
+
+  
+</div>
+
+  </div>
+
+  
+    <footer class="footer">
+  <div class="footer__inner">
+    
+      <div class="copyright">
+        <span>© 2022 Powered by <a href="http://gohugo.io">Hugo</a></span>
+    
+        <span>:: Theme made by <a href="https://twitter.com/panr">panr</a></span>
+      </div>
+  </div>
+</footer>
+
+<script src="https://jujunwang.github.io/assets/main.js"></script>
+<script src="https://jujunwang.github.io/assets/prism.js"></script>
+
+
+
+
+
+
+
+  
+</div>
+
+</body>
+</html>

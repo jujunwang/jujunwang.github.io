@@ -976,7 +976,7 @@
 <li>调用 <code>retake</code> ，抢占长时间处于 <code>_Psyscall</code> 状态的 P。</li>
 </ol>
 <p>综上，Go 借助于 epoll/kqueue/iocp 和 runtime scheduler 等的帮助，设计出了自己的 I/O 多路复用 netpoll，成功地让 <code>Listener.Accept</code> / <code>conn.Read</code> / <code>conn.Write</code> 等方法从开发者的角度看来是同步模式。</p>
-<h3 id="参考">参考<a href="#参考" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<h3 id="参考文献">参考文献<a href="#参考文献" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
 <blockquote>
 <p><a href="https://cloud.tencent.com/developer/news/600726">https://cloud.tencent.com/developer/news/600726</a></p>
 </blockquote>
@@ -991,6 +991,13 @@
         <hr />
     </div>
     <div class="pagination__buttons">
+        
+        <span class="button previous">
+            <a href="https://jujunwang.github.io/posts/redis-hyperloglog/">
+                <span class="button__icon">←</span>
+                <span class="button__text">Redis HyperLoglog</span>
+            </a>
+        </span>
         
         
         <span class="button next">

@@ -6,7 +6,8 @@
   
   <meta http-equiv="content-type" content="text/html; charset=utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Redis-HyperLoglog 关于 Redis HyperLogLog 在说明 HyperLogLog 之前，我们需要先了解一个概念：基数统计。维基百科中的解释是：
+<meta name="description" content="Redis-HyperLoglog 概览 HyperLogLog作为一个实现基数统计的高效数据结构，被用在计算日活数据等应用领域，每个键占用的内容都是12k，但因为不存储实际的数据，因此可以统计2^64个值。
+关于 Redis HyperLogLog 在说明 HyperLogLog 之前，我们需要先了解一个概念：基数统计。维基百科中的解释是：
 cardinality of a set is a measure of the “number of elements“ of the set
 它的意思是：一个集合（注意：这里集合的含义是 Object 的聚合，可以包含重复元素）中不重复元素的个数。例如集合 {1,2,3,1,2}，它有5个元素，但它的基数/Distinct 数为3。
 Redis 最常用的数据结构有字符串、列表、字典、集合和有序集合。后来，由于 Redis 的广泛应用，Redis 自身也做了很多补充，其中就有 HyperLogLog（2.8.9 版本添加）结构。HyperLogLog 是用来做基数统计的算法，HyperLogLog 的优点是，在输入元素的数量或者体积非常大时，计算基数所需的空间总是固定的、并且是很小的。
@@ -45,7 +46,8 @@ PFADD
 <meta property="og:locale" content="en" />
 <meta property="og:type" content="article" />
 <meta property="og:title" content="Redis HyperLoglog">
-<meta property="og:description" content="Redis-HyperLoglog 关于 Redis HyperLogLog 在说明 HyperLogLog 之前，我们需要先了解一个概念：基数统计。维基百科中的解释是：
+<meta property="og:description" content="Redis-HyperLoglog 概览 HyperLogLog作为一个实现基数统计的高效数据结构，被用在计算日活数据等应用领域，每个键占用的内容都是12k，但因为不存储实际的数据，因此可以统计2^64个值。
+关于 Redis HyperLogLog 在说明 HyperLogLog 之前，我们需要先了解一个概念：基数统计。维基百科中的解释是：
 cardinality of a set is a measure of the “number of elements“ of the set
 它的意思是：一个集合（注意：这里集合的含义是 Object 的聚合，可以包含重复元素）中不重复元素的个数。例如集合 {1,2,3,1,2}，它有5个元素，但它的基数/Distinct 数为3。
 Redis 最常用的数据结构有字符串、列表、字典、集合和有序集合。后来，由于 Redis 的广泛应用，Redis 自身也做了很多补充，其中就有 HyperLogLog（2.8.9 版本添加）结构。HyperLogLog 是用来做基数统计的算法，HyperLogLog 的优点是，在输入元素的数量或者体积非常大时，计算基数所需的空间总是固定的、并且是很小的。
@@ -158,6 +160,9 @@ PFADD
 
   <div class="post-content"><div>
         <h1 id="redis-hyperloglog">Redis-HyperLoglog<a href="#redis-hyperloglog" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
+<h2 id="概览">概览<a href="#概览" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
+<p>HyperLogLog作为一个实现基数统计的高效数据结构，被用在计算日活数据等应用领域，每个键占用的内容都是12k，但因为不存储实际的数据，因此可以统计2^64个值。</p>
+<hr>
 <h2 id="关于-redis-hyperloglog">关于 Redis HyperLogLog<a href="#关于-redis-hyperloglog" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
 <p><strong>在说明 HyperLogLog 之前，我们需要先了解一个概念：基数统计。维基百科中的解释是：</strong></p>
 <blockquote>

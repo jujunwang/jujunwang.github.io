@@ -13,7 +13,8 @@
       <pubDate>Mon, 04 Jul 2022 21:59:27 +0800</pubDate>
       
       <guid>https://jujunwang.github.io/posts/redis-hyperloglog/</guid>
-      <description>Redis-HyperLoglog 关于 Redis HyperLogLog 在说明 HyperLogLog 之前，我们需要先了解一个概念：基数统计。维基百科中的解释是：
+      <description>Redis-HyperLoglog 概览 HyperLogLog作为一个实现基数统计的高效数据结构，被用在计算日活数据等应用领域，每个键占用的内容都是12k，但因为不存储实际的数据，因此可以统计2^64个值。
+关于 Redis HyperLogLog 在说明 HyperLogLog 之前，我们需要先了解一个概念：基数统计。维基百科中的解释是：
 cardinality of a set is a measure of the “number of elements“ of the set
 它的意思是：一个集合（注意：这里集合的含义是 Object 的聚合，可以包含重复元素）中不重复元素的个数。例如集合 {1,2,3,1,2}，它有5个元素，但它的基数/Distinct 数为3。
 Redis 最常用的数据结构有字符串、列表、字典、集合和有序集合。后来，由于 Redis 的广泛应用，Redis 自身也做了很多补充，其中就有 HyperLogLog（2.8.9 版本添加）结构。HyperLogLog 是用来做基数统计的算法，HyperLogLog 的优点是，在输入元素的数量或者体积非常大时，计算基数所需的空间总是固定的、并且是很小的。
@@ -24,6 +25,9 @@ Redis HyperLogLog 命令 Redis 为 HyperLogLog提供了三个命令：PFADD、PF
 PFADD
 将任意数量的元素添加到指定的 HyperLogLog 里面。时间复杂度： 每添加一个元素的复杂度为 O(1) 。如果 HyperLogLog 估计的近似基数（approximated cardinality）在命令执行之后出现了变化， 那么命令返回 1 ， 否则返回 0 。 如果命令执行时给定的键不存在， 那么程序将先创建一个空的 HyperLogLog 结构， 然后再执行命令。</description>
       <content>&lt;h1 id=&#34;redis-hyperloglog&#34;&gt;Redis-HyperLoglog&lt;/h1&gt;
+&lt;h2 id=&#34;概览&#34;&gt;概览&lt;/h2&gt;
+&lt;p&gt;HyperLogLog作为一个实现基数统计的高效数据结构，被用在计算日活数据等应用领域，每个键占用的内容都是12k，但因为不存储实际的数据，因此可以统计2^64个值。&lt;/p&gt;
+&lt;hr&gt;
 &lt;h2 id=&#34;关于-redis-hyperloglog&#34;&gt;关于 Redis HyperLogLog&lt;/h2&gt;
 &lt;p&gt;&lt;strong&gt;在说明 HyperLogLog 之前，我们需要先了解一个概念：基数统计。维基百科中的解释是：&lt;/strong&gt;&lt;/p&gt;
 &lt;blockquote&gt;

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  
+    <title>快排和归并排序 :: JujunWang&#39;s Blog</title>
+  
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="快排和归并排序" />
+<meta name="keywords" content=", " />
+<meta name="robots" content="noodp" />
+<link rel="canonical" href="https://jujunwang.github.io/posts/%E5%BF%AB%E6%8E%92%E5%92%8C%E5%BD%92%E5%B9%B6%E6%8E%92%E5%BA%8F/" />
+
+
+
+
+<link rel="stylesheet" href="https://jujunwang.github.io/assets/style.css">
+
+  <link rel="stylesheet" href="https://jujunwang.github.io/assets/green.css">
+
+
+
+
+
+
+<link rel="apple-touch-icon" href="https://jujunwang.github.io/img/apple-touch-icon-192x192.png">
+
+  <link rel="shortcut icon" href="https://jujunwang.github.io/img/favicon/green.png">
+
+
+
+<meta name="twitter:card" content="summary" />
+
+
+
+<meta property="og:locale" content="en" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="快排和归并排序">
+<meta property="og:description" content="快排和归并排序" />
+<meta property="og:url" content="https://jujunwang.github.io/posts/%E5%BF%AB%E6%8E%92%E5%92%8C%E5%BD%92%E5%B9%B6%E6%8E%92%E5%BA%8F/" />
+<meta property="og:site_name" content="JujunWang&#39;s Blog" />
+
+  <meta property="og:image" content="https://jujunwang.github.io">
+
+<meta property="og:image:width" content="2048">
+<meta property="og:image:height" content="1024">
+
+
+  <meta property="article:published_time" content="2022-07-05 16:13:19 &#43;0800 CST" />
+
+
+
+
+
+
+
+
+
+
+
+
+</head>
+<body class="green">
+
+
+<div class="container full headings--one-size">
+
+  <header class="header">
+  <div class="header__inner">
+    <div class="header__logo">
+      <a href="/">
+  <div class="logo">
+    JujunWang&#39;s Blog
+  </div>
+</a>
+
+    </div>
+    
+      <div class="menu-trigger">menu</div>
+    
+  </div>
+  
+    <nav class="menu">
+  <ul class="menu__inner menu__inner--desktop">
+    
+      
+        
+          <li><a href="https://github.com/jujunwang?tab=repositories">Github</a></li>
+        
+      
+      
+    
+
+    
+  </ul>
+
+  <ul class="menu__inner menu__inner--mobile">
+    
+      
+        <li><a href="https://github.com/jujunwang?tab=repositories">Github</a></li>
+      
+    
+    
+  </ul>
+</nav>
+
+  
+</header>
+
+
+  <div class="content">
+    
+<div class="post">
+  <h1 class="post-title">
+    <a href="https://jujunwang.github.io/posts/%E5%BF%AB%E6%8E%92%E5%92%8C%E5%BD%92%E5%B9%B6%E6%8E%92%E5%BA%8F/">快排和归并排序</a></h1>
+  <div class="post-meta">
+    
+      <span class="post-date">
+        2022-07-05
+        
+      </span>
+    
+    
+    
+  </div>
+
+  
+  <span class="post-tags">
+    
+    #<a href="https://jujunwang.github.io/tags/"></a>&nbsp;
+    
+    #<a href="https://jujunwang.github.io/tags/"></a>&nbsp;
+    
+  </span>
+  
+  
+
+
+  
+
+  <div class="post-content"><div>
+        <h1 id="快速排序">快速排序<a href="#快速排序" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-go" data-lang="go"><span style="display:flex;"><span><span style="color:#66d9ef">func</span> <span style="color:#a6e22e">sortArray</span>(<span style="color:#a6e22e">nums</span> []<span style="color:#66d9ef">int</span>) []<span style="color:#66d9ef">int</span> {
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">var</span> <span style="color:#a6e22e">quick_sort</span> <span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">nums</span> []<span style="color:#66d9ef">int</span>,<span style="color:#a6e22e">l</span>,<span style="color:#a6e22e">r</span> <span style="color:#66d9ef">int</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">quick_sort</span>=<span style="color:#66d9ef">func</span>(<span style="color:#a6e22e">nums</span> []<span style="color:#66d9ef">int</span>,<span style="color:#a6e22e">l</span>,<span style="color:#a6e22e">r</span> <span style="color:#66d9ef">int</span>){
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">l</span><span style="color:#f92672">&gt;=</span><span style="color:#a6e22e">r</span>{
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">return</span> 
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//这x取l、r、(l+r)&gt;&gt;1都行。下面用i来区分边界的时候，这不能写l！！！！否则有边界问题，会死循环，死循环样例1 2
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#a6e22e">x</span>,<span style="color:#a6e22e">i</span>,<span style="color:#a6e22e">j</span><span style="color:#f92672">:=</span><span style="color:#a6e22e">nums</span>[<span style="color:#a6e22e">l</span>],<span style="color:#a6e22e">l</span><span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>,<span style="color:#a6e22e">r</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>        <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span>&lt;<span style="color:#a6e22e">j</span>{
+</span></span><span style="display:flex;"><span>            <span style="color:#75715e">//golang模拟do while写法
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#75715e">// var _tk=true
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#75715e">// for _tk||nums[i]&lt;x{
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#75715e">//     _tk=false
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#75715e">//     i++
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#75715e">// }
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>            <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span>;<span style="color:#a6e22e">nums</span>[<span style="color:#a6e22e">i</span>]&lt;<span style="color:#a6e22e">x</span>;{
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">i</span><span style="color:#f92672">++</span>
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">for</span> <span style="color:#a6e22e">j</span><span style="color:#f92672">--</span>;<span style="color:#a6e22e">nums</span>[<span style="color:#a6e22e">j</span>]&gt;<span style="color:#a6e22e">x</span>;{
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">j</span><span style="color:#f92672">--</span>
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>            <span style="color:#66d9ef">if</span> <span style="color:#a6e22e">i</span>&lt;<span style="color:#a6e22e">j</span>{
+</span></span><span style="display:flex;"><span>                <span style="color:#a6e22e">nums</span>[<span style="color:#a6e22e">i</span>],<span style="color:#a6e22e">nums</span>[<span style="color:#a6e22e">j</span>]=<span style="color:#a6e22e">nums</span>[<span style="color:#a6e22e">j</span>],<span style="color:#a6e22e">nums</span>[<span style="color:#a6e22e">i</span>]
+</span></span><span style="display:flex;"><span>            }
+</span></span><span style="display:flex;"><span>        }
+</span></span><span style="display:flex;"><span>        <span style="color:#75715e">//或者
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// quick_sort(nums,l,i-1)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        <span style="color:#75715e">// quick_sort(nums,i,r)
+</span></span></span><span style="display:flex;"><span><span style="color:#75715e"></span>        
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">quick_sort</span>(<span style="color:#a6e22e">nums</span>,<span style="color:#a6e22e">l</span>,<span style="color:#a6e22e">j</span>)
+</span></span><span style="display:flex;"><span>        <span style="color:#a6e22e">quick_sort</span>(<span style="color:#a6e22e">nums</span>,<span style="color:#a6e22e">j</span><span style="color:#f92672">+</span><span style="color:#ae81ff">1</span>,<span style="color:#a6e22e">r</span>)
+</span></span><span style="display:flex;"><span>    } 
+</span></span><span style="display:flex;"><span>    <span style="color:#a6e22e">quick_sort</span>(<span style="color:#a6e22e">nums</span>,<span style="color:#ae81ff">0</span>,len(<span style="color:#a6e22e">nums</span>)<span style="color:#f92672">-</span><span style="color:#ae81ff">1</span>)
+</span></span><span style="display:flex;"><span>    <span style="color:#66d9ef">return</span> <span style="color:#a6e22e">nums</span>
+</span></span><span style="display:flex;"><span>}
+</span></span></code></pre></div><ul>
+<li><strong>时间复杂度</strong>：平均情况O（nlogn），最好O（nlogn），最坏O（n^2）</li>
+</ul>
+<ul>
+<li><strong>最佳情况：<code>T(n) = O(nlogn)</code></strong>，快速排序最优的情况就是每一次取到的元素都刚好平分整个数组</li>
+<li><strong>最差情况：<code>T(n) = O(n²)</code></strong>，最差的情况就是每一次取到的元素就是数组中最小/最大的，这种情况其实就是冒泡排序了(每一次都排好一个元素的顺序)</li>
+<li><strong>平均情况：<code>T(n) = O(nlogn)</code></strong></li>
+<li><strong>稳定性：<code>不稳定</code></strong></li>
+</ul>
+<h1 id="归并排序">归并排序<a href="#归并排序" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
+<h1 id="总结">总结<a href="#总结" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h1>
+<p><img src="https://segmentfault.com/img/bVbCXi7" alt="01"></p>
+
+      </div></div>
+
+  
+  
+<div class="pagination">
+    <div class="pagination__title">
+        <span class="pagination__title-h">Read other posts</span>
+        <hr />
+    </div>
+    <div class="pagination__buttons">
+        
+        
+        <span class="button next">
+            <a href="https://jujunwang.github.io/posts/redis-hyperloglog/">
+                <span class="button__text">Redis HyperLoglog</span>
+                <span class="button__icon">→</span>
+            </a>
+        </span>
+        
+    </div>
+</div>
+
+  
+
+  
+  
+
+  
+</div>
+
+  </div>
+
+  
+    <footer class="footer">
+  <div class="footer__inner">
+    
+      <div class="copyright">
+        <span>© 2022 Powered by <a href="http://gohugo.io">Hugo</a></span>
+    
+        <span>:: Theme made by <a href="https://twitter.com/panr">panr</a></span>
+      </div>
+  </div>
+</footer>
+
+<script src="https://jujunwang.github.io/assets/main.js"></script>
+<script src="https://jujunwang.github.io/assets/prism.js"></script>
+
+
+
+
+
+
+
+  
+</div>
+
+</body>
+</html>

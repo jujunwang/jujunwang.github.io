@@ -13,7 +13,7 @@
       <pubDate>Tue, 05 Jul 2022 16:13:19 +0800</pubDate>
       
       <guid>https://jujunwang.github.io/posts/%E5%BF%AB%E6%8E%92%E5%92%8C%E5%BD%92%E5%B9%B6%E6%8E%92%E5%BA%8F/</guid>
-      <description>快速排序 func sortArray(nums []int) []int { var quick_sort func(nums []int,l,r int) quick_sort=func(nums []int,l,r int){ if l&amp;gt;=r{ return } //这x取l、r、(l+r)&amp;gt;&amp;gt;1都行。下面用i来区分边界的时候，这不能写l！！！！否则有边界问题，会死循环，死循环样例1 2 x,i,j:=nums[l],l-1,r+1 for i&amp;lt;j{ //golang模拟do while写法 // var _tk=true // for _tk||nums[i]&amp;lt;x{ // _tk=false // i++ // } for i++;nums[i]&amp;lt;x;{ i++ } for j--;nums[j]&amp;gt;x;{ j-- } if i&amp;lt;j{ nums[i],nums[j]=nums[j],nums[i] } } //或者 // quick_sort(nums,l,i-1) // quick_sort(nums,i,r) quick_sort(nums,l,j) quick_sort(nums,j+1,r) } quick_sort(nums,0,len(nums)-1) return nums } 时间复杂度：平均情况O（nlogn），最好O（nlogn），最坏O（n^2） 最佳情况：T(n) = O(nlogn)，快速排序最优的情况就是每一次取到的元素都刚好平分整个数组 最差情况：T(n) = O(n²)，最差的情况就是每一次取到的元素就是数组中最小/最大的，这种情况其实就是冒泡排序了(每一次都排好一个元素的顺序) 平均情况：T(n) = O(nlogn) 稳定性：不稳定 归并排序 总结 </description>
+      <description>快速排序 func sortArray(nums []int) []int { var quick_sort func(nums []int,l,r int) quick_sort=func(nums []int,l,r int){ if l&amp;gt;=r{ return } //这x取l、r、(l+r)&amp;gt;&amp;gt;1都行。下面用i来区分边界的时候，这不能写l！！！！否则有边界问题，会死循环，死循环样例1 2 x,i,j:=nums[l],l-1,r+1 for i&amp;lt;j{ //golang模拟do while写法 // var _tk=true // for _tk||nums[i]&amp;lt;x{ // _tk=false // i++ // } for i++;nums[i]&amp;lt;x;{ i++ } for j--;nums[j]&amp;gt;x;{ j-- } if i&amp;lt;j{ nums[i],nums[j]=nums[j],nums[i] } } //或者 // quick_sort(nums,l,i-1) // quick_sort(nums,i,r) quick_sort(nums,l,j) quick_sort(nums,j+1,r) } quick_sort(nums,0,len(nums)-1) return nums } 时间复杂度：平均情况O（nlogn），最好O（nlogn），最坏O（n^2） 最佳情况：T(n) = O(nlogn)，快速排序最优的情况就是每一次取到的元素都刚好平分整个数组 最差情况：T(n) = O(n²)，最差的情况就是每一次取到的元素就是数组中最小/最大的，这种情况其实就是冒泡排序了(每一次都排好一个元素的顺序) 平均情况：T(n) = O(nlogn) 稳定性：不稳定 归并排序 时间复杂度： 总结 </description>
       <content>&lt;h1 id=&#34;快速排序&#34;&gt;快速排序&lt;/h1&gt;
 &lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-go&#34; data-lang=&#34;go&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#66d9ef&#34;&gt;func&lt;/span&gt; &lt;span style=&#34;color:#a6e22e&#34;&gt;sortArray&lt;/span&gt;(&lt;span style=&#34;color:#a6e22e&#34;&gt;nums&lt;/span&gt; []&lt;span style=&#34;color:#66d9ef&#34;&gt;int&lt;/span&gt;) []&lt;span style=&#34;color:#66d9ef&#34;&gt;int&lt;/span&gt; {
 &lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;    &lt;span style=&#34;color:#66d9ef&#34;&gt;var&lt;/span&gt; &lt;span style=&#34;color:#a6e22e&#34;&gt;quick_sort&lt;/span&gt; &lt;span style=&#34;color:#66d9ef&#34;&gt;func&lt;/span&gt;(&lt;span style=&#34;color:#a6e22e&#34;&gt;nums&lt;/span&gt; []&lt;span style=&#34;color:#66d9ef&#34;&gt;int&lt;/span&gt;,&lt;span style=&#34;color:#a6e22e&#34;&gt;l&lt;/span&gt;,&lt;span style=&#34;color:#a6e22e&#34;&gt;r&lt;/span&gt; &lt;span style=&#34;color:#66d9ef&#34;&gt;int&lt;/span&gt;)
@@ -61,6 +61,9 @@
 &lt;li&gt;&lt;strong&gt;稳定性：&lt;code&gt;不稳定&lt;/code&gt;&lt;/strong&gt;&lt;/li&gt;
 &lt;/ul&gt;
 &lt;h1 id=&#34;归并排序&#34;&gt;归并排序&lt;/h1&gt;
+&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-go&#34; data-lang=&#34;go&#34;&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;ul&gt;
+&lt;li&gt;时间复杂度：&lt;/li&gt;
+&lt;/ul&gt;
 &lt;h1 id=&#34;总结&#34;&gt;总结&lt;/h1&gt;
 &lt;p&gt;&lt;img src=&#34;https://segmentfault.com/img/bVbCXi7&#34; alt=&#34;01&#34;&gt;&lt;/p&gt;
 </content>

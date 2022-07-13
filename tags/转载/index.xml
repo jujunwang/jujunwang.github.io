@@ -15,8 +15,8 @@
       <guid>https://jujunwang.github.io/posts/%E9%98%BB%E5%A1%9E%E9%9D%9E%E9%98%BB%E5%A1%9E%E4%B8%8E%E5%90%8C%E6%AD%A5%E5%BC%82%E6%AD%A5/</guid>
       <description>作者：萧萧 链接：https://www.zhihu.com/question/19732473/answer/241673170 来源：知乎
 IO 概念区分 四个相关概念：
-同步（Synchronous） 异步( Asynchronous) 阻塞( Blocking ) 非阻塞( Nonblocking) 这四个概念的含义以及相互之间的区别与联系，并不如很多网络博客所写的那么简单, 通过举一些什么商店购物， 买书买报的例子就能讲清楚。
-进程间通信的同步/异步， 阻塞/非阻塞 首先强调一点， 网络上很多博文关于同步/异步， 阻塞非阻塞区别的解释其实都经不起推敲。 例如在 严肃 的这一高赞回答中 ， 有如下解释（不准确）：
+同步（Synchronous） 异步( Asynchronous) 阻塞( Blocking ) 非阻塞( Nonblocking) 这四个概念的含义以及相互之间的区别与联系，并不如很多网络博客所写的那么简单, 通过举一些什么商店购物，买书买报的例子就能讲清楚。
+进程间通信的同步/异步， 阻塞/非阻塞 首先强调一点， 网络上很多博文关于同步/异步， 阻塞非阻塞区别的解释其实都经不起推敲。 例如在 严肃 的这一高赞回答中 ，有如下解释（不准确）：
 同步/异步关注的是消息通信机制 (synchronous communication/ asynchronous communication) 。
 所谓同步，就是在发出一个调用时，在没有得到结果之前， 该调用就不返回。
 异步则是相反，调用在发出之后，这个调用就直接返回了，所以没有返回结果
@@ -41,9 +41,9 @@ IO 概念区分 四个相关概念：
 &lt;li&gt;阻塞( Blocking )&lt;/li&gt;
 &lt;li&gt;非阻塞( Nonblocking)&lt;/li&gt;
 &lt;/ul&gt;
-&lt;p&gt;这四个概念的含义以及相互之间的区别与联系，并不如很多网络博客所写的那么简单, 通过举一些什么商店购物， 买书买报的例子就能讲清楚。&lt;/p&gt;
+&lt;p&gt;这四个概念的含义以及相互之间的区别与联系，并不如很多网络博客所写的那么简单, 通过举一些什么商店购物，买书买报的例子就能讲清楚。&lt;/p&gt;
 &lt;h2 id=&#34;进程间通信的同步异步-阻塞非阻塞&#34;&gt;进程间通信的同步/异步， 阻塞/非阻塞&lt;/h2&gt;
-&lt;p&gt;首先强调一点， 网络上很多博文关于同步/异步， 阻塞非阻塞区别的解释其实都经不起推敲。 例如在 &lt;strong&gt;严肃&lt;/strong&gt; 的这一高赞回答中 ， 有如下解释（不准确）：&lt;/p&gt;
+&lt;p&gt;首先强调一点， 网络上很多博文关于同步/异步， 阻塞非阻塞区别的解释其实都经不起推敲。 例如在 &lt;strong&gt;严肃&lt;/strong&gt; 的这一高赞回答中 ，有如下解释（不准确）：&lt;/p&gt;
 &lt;ul&gt;
 &lt;li&gt;
 &lt;p&gt;同步/异步关注的是消息通信机制 (synchronous communication/ asynchronous communication) 。&lt;/p&gt;
@@ -70,7 +70,7 @@ IO 概念区分 四个相关概念：
 &lt;li&gt;如果**“异步”&lt;strong&gt;调用发出了以后就直接返回了， 毫无疑问， 这个进程没有被&lt;/strong&gt;“阻塞”**。&lt;/li&gt;
 &lt;/ul&gt;
 &lt;p&gt;所以， 上述的解释是不准确的。 让我们看一下《操作系统概念（第九版）》中有关进程间通信的部分是如何解释的：&lt;/p&gt;
-&lt;p&gt;&lt;img src=&#34;https://pic2.zhimg.com/50/v2-d6729b9e95e8f20c4e53215327596692_720w.jpg?source=1940ef5c&#34; alt=&#34;img&#34;&gt;&lt;img src=&#34;https://pic2.zhimg.com/80/v2-d6729b9e95e8f20c4e53215327596692_1440w.jpg?source=1940ef5c&#34; alt=&#34;img&#34;&gt;&lt;/p&gt;
+&lt;p&gt;&lt;img src=&#34;https://pic2.zhimg.com/50/v2-d6729b9e95e8f20c4e53215327596692_720w.jpg?source=1940ef5c&#34; alt=&#34;img&#34;&gt;&lt;/p&gt;
 &lt;p&gt;翻译一下就是：&lt;/p&gt;
 &lt;blockquote&gt;
 &lt;p&gt;进程间的通信是通过 &lt;a href=&#34;https://www.zhihu.com/search?q=send&amp;amp;search_source=Entity&amp;amp;hybrid_search_source=Entity&amp;amp;hybrid_search_extra=%7B%22sourceType%22%3A%22answer%22%2C%22sourceId%22%3A241673170%7D&#34;&gt;send&lt;/a&gt;() 和 receive() 两种基本操作完成的。具体如何实现这两种基础操作，存在着不同的设计。  消息的传递有可能是&lt;strong&gt;阻塞的&lt;/strong&gt;或&lt;strong&gt;非阻塞的&lt;/strong&gt; – 也被称为&lt;strong&gt;同步&lt;/strong&gt;或&lt;strong&gt;异步&lt;/strong&gt;的：&lt;/p&gt;

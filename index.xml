@@ -269,8 +269,9 @@ IO 概念区分 四个相关概念：
       <pubDate>Sun, 10 Jul 2022 15:53:28 +0800</pubDate>
       
       <guid>https://jujunwang.github.io/posts/golang%E7%9A%84http%E5%8C%85%E8%A7%A3%E8%AF%BB/</guid>
-      <description></description>
-      <content>&lt;p&gt;&lt;img src=&#34;../../../../Library/Application%20Support/typora-user-images/image-20220710160414220.png&#34; alt=&#34;image-20220710160414220&#34;&gt;&lt;/p&gt;
+      <description>http 报文结构</description>
+      <content>&lt;h1 id=&#34;http&#34;&gt;http&lt;/h1&gt;
+&lt;p&gt;报文结构&lt;/p&gt;
 </content>
     </item>
     
